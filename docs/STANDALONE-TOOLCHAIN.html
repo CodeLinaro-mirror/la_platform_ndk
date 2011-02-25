@@ -52,18 +52,17 @@ being currently supported). For example, if you're targetting Android 2.1
 2/ Invoking the compiler (the hard way):
 ----------------------------------------
 
-Invoke the compiler using the -sysroot option to indicate where the system
+Invoke the compiler using the --sysroot option to indicate where the system
 files for the platform you're targetting are located. For example, do:
 
-    export CC="$NDK/toolchains/&lt;name&gt;/prebuilt/&lt;system&gt;/bin/&lt;prefix&gt;gcc -sysroot
-$SYSROOT"
+    export CC="$NDK/toolchains/&lt;name&gt;/prebuilt/&lt;system&gt;/bin/&lt;prefix&gt;gcc --sysroot=$SYSROOT"
     $CC -o foo.o -c foo.c
 
 Where &lt;name&gt; is the toolchain's name, &lt;system&gt; is the host tag for your system,
 and &lt;prefix&gt; is a toolchain-specific prefix. For example, if you are on Linux
 using the NDK r5 toolchain, you would use:
 
-    export CC="$NDK/toolchains/arm-linux-androideabi-4.4.3/prebuilt/linux-x86/bin/arm-linux-androideabi-gcc -sysroot $SYSROOT"
+    export CC="$NDK/toolchains/arm-linux-androideabi-4.4.3/prebuilt/linux-x86/bin/arm-linux-androideabi-gcc --sysroot=$SYSROOT"
 
 As you can see, this is rather verbose, but it works!
 
@@ -94,7 +93,7 @@ IMPORTANT: The toolchain binaries do not depend or contain host-specific paths,
            in other words, they can be installed in any location, or even
            moved if you need to.
 
-NOTE: You can still use the -sysroot option with the new toolchain, but it
+NOTE: You can still use the --sysroot option with the new toolchain, but it
       is now simply optional!
 
 
@@ -170,18 +169,25 @@ and switch to better representations. The support provided in Android is only
 there to help you migrate existing code.
 
 
-5.3/ Exceptions and RTTI:
-- - - - - - - - - - - - -
+5.3/ Exceptions, RTTI and STL:
+- - - - - - - - - - - - - - -
 
 The toolchain binaries *do* support C++ exceptions and RTTI by default.
-However, it does not come with a full libstdc++, and you will need to
-explicitely link to libsupc++.a to use these features in your code. As in:
+They are enabled by default, so use -fno-exceptions and -fno-rtti if you
+want to disable them when building sources with them (e.g. to generate
+smaller machine code).
+
+NOTE: You will need to explicitely link with libsupc++ if you use these
+      features. To do this, use -lsupc++ when linking binaries, as in:
 
     arm-linux-androideabi-g++ .... -lsupc++
 
-Proper toolchain configuration to avoid this is planned for the future.
 
-If you don't need these features, consider using -fno-exceptions and -fno-rtti
-to generate smaller machine code.
+The toolchain also comes with a working GNU libstdc++ implementation, which
+provides a working C++ Standard Template Library implementation. You will
+need to explicitely link against -lstdc++ to use it.
+
+Proper toolchain configuration to avoid these explicit link flags is
+planned for the future.
 
 </pre></body></html>

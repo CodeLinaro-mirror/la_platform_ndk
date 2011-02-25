@@ -25,8 +25,6 @@
 . `dirname $0`/prebuilt-common.sh
 PROGDIR=`dirname $0`
 
-prepare_host_flags
-
 NDK_DIR=
 register_var_option "--ndk-dir=<path>" NDK_DIR "Don't package, copy binaries to target NDK directory"
 
@@ -52,6 +50,11 @@ register_var_option "--try-x86" OPTION_TRY_X86 "Build experimental x86 toolchain
 OPTION_GIT_HTTP=no
 register_var_option "--git-http" OPTION_GIT_HTTP "Download sources with http."
 
+DARWIN_SSH=
+if [ "$HOST_OS" = "linux" ] ; then
+register_var_option "--darwin-ssh=<hostname>" DARWIN_SSH "Specify Darwin hostname to ssh to for the build."
+fi
+
 register_mingw_option
 
 PROGRAM_PARAMETERS=
@@ -70,7 +73,10 @@ Please read docs/DEVELOPMENT.TXT for more usage information about this
 script.
 "
 
-extract_parameters $@
+extract_parameters "$@"
+
+# Needed to set HOST_TAG to windows if --mingw is used.
+prepare_host_flags
 
 if [ -n "$PACKAGE_DIR" -a -n "$NDK_DIR" ] ; then
     echo "ERROR: You cannot use both --package-dir and --ndk-dir at the same time!"
@@ -79,10 +85,7 @@ fi
 
 if [ -z "$NDK_DIR" ] ; then
     mkdir -p "$PACKAGE_DIR"
-    if [ $? != 0 ] ; then
-        echo "ERROR: Could not create directory: $PACKAGE_DIR"
-        exit 1
-    fi
+    fail_panic "Could not create directory: $PACKAGE_DIR"
     NDK_DIR=/tmp/ndk-toolchain/ndk-prebuilt-$$
     mkdir -p $NDK_DIR
 else
@@ -124,6 +127,9 @@ FLAGS=""
 if [ $VERBOSE = yes ] ; then
     FLAGS="--verbose"
 fi
+if [ "$MINGW" = "yes" ] ; then
+    FLAGS="$FLAGS --mingw"
+fi
 
 if [ -z "$OPTION_TOOLCHAIN_SRC_DIR" ] ; then
     if [ -n "$OPTION_TOOLCHAIN_SRC_PKG" ] ; then
@@ -132,22 +138,8 @@ if [ -z "$OPTION_TOOLCHAIN_SRC_DIR" ] ; then
             dump "ERROR: Invalid toolchain source package: $OPTION_TOOLCHAIN_SRC_PKG"
             exit 1
         fi
-        TARFLAGS="xf"
-        if [ $VERBOSE2 = yes ] ; then
-            TARFLAGS="v$TARFLAGS"
-        fi
-        if pattern_match '\.tar\.gz$' "$OPTION_TOOLCHAIN_SRC_PKG"; then
-            TARFLAGS="z$TARFLAGS"
-        fi
-        if pattern_match '\.tar\.bz2$' "$OPTION_TOOLCHAIN_SRC_PKG"; then
-            TARFLAGS="j$TARFLAGS"
-        fi
-        dump "Unpack sources from $OPTION_TOOLCHAIN_SRC_PKG"
-        mkdir -p $SRC_DIR && tar $TARFLAGS $OPTION_TOOLCHAIN_SRC_PKG -C $SRC_DIR
-        if [ $? != 0 ] ; then
-            dump "ERROR: Could not unpack toolchain sources!"
-            exit 1
-        fi
+        unpack_archive "$OPTION_TOOLCHAIN_SRC_PKG" "$SRC_DIR"
+        fail_panic "Could not unpack toolchain sources!"
     else
         # Download the toolchain sources
         dump "Download sources from android.git.kernel.org"
@@ -156,15 +148,49 @@ if [ -z "$OPTION_TOOLCHAIN_SRC_DIR" ] ; then
             DOWNLOAD_FLAGS="$DOWNLOAD_FLAGS --git-http"
         fi
         $PROGDIR/download-toolchain-sources.sh $DOWNLOAD_FLAGS $SRC_DIR
-        if [ $? != 0 ] ; then
-            dump "ERROR: Could not download toolchain sources!"
-            exit 1
-        fi
+        fail_panic "Could not download toolchain sources!"
     fi
 fi # ! $TOOLCHAIN_SRC_DIR
 
-# Needed to set HOST_TAG to windows if --mingw is used.
-prepare_host_flags
+# Special treatment when building remotely on a Darwin machine through ssh
+# For now, we will have to prompt the user several times.
+#
+if [ -n "$DARWIN_SSH" ] ; then
+    # 1/ Copy the NDK toolchain build scripts
+    # 2/ Copy the toolchain sources/package
+    # 3/ Ssh to unpack the build scripts, and run them
+    # 4/ Copy back the generated prebuilt binaries
+    #
+    dump "Preparing remote build on $DARWIN_SSH..."
+    dump "Creating remote temp directory"
+    TMPREMOTE=/tmp/ndk-darwin-prebuild
+    run ssh $DARWIN_SSH "mkdir -p $TMPREMOTE && rm -rf $TMPREMOTE/*"
+    TMPDARWIN=`random_temp_directory`  # Where we're going to package stuff
+    log "Using temporary work directory: $TMPDARWIN"
+    dump "Prepare NDK build scripts"
+    copy_directory "$ANDROID_NDK_ROOT/build" "$TMPDARWIN/ndk/build"
+    copy_file_list "$ANDROID_NDK_ROOT" "$TMPDARWIN/ndk" sources/android/libthread_db
+    copy_file_list "$ANDROID_NDK_ROOT" "$TMPDARWIN/ndk" "$STLPORT_SUBDIR"
+    dump "Prepare platforms files"
+    `dirname $0`/build-platforms.sh --no-samples --dst-dir="$TMPDARWIN/ndk"
+    dump "Copying NDK build scripts and platform files to remote..."
+    (cd "$TMPDARWIN" && tar czf - ndk) | (ssh $DARWIN_SSH tar xzf - -C $TMPREMOTE)
+    fail_panic "Could not copy!"
+    rm -rf $TMPDARWIN
+    dump "Copy toolchain sources to remote"
+    ssh $DARWIN_SSH mkdir -p $TMPREMOTE/toolchain &&
+    (cd "$SRC_DIR" && tar czf - .) | (ssh $DARWIN_SSH tar xzf - -C $TMPREMOTE/toolchain)
+    fail_panic "Could not copy toolchain!"
+    dump "Running remote build..."
+    run ssh $DARWIN_SSH "$TMPREMOTE/ndk/build/tools/rebuild-all-prebuilt.sh --toolchain-src-dir=$TMPREMOTE/toolchain --package-dir=$TMPREMOTE/packages"
+    fail_panic "Could not build prebuilt packages on Darwin!"
+    dump "Copying back Darwin prebuilt packages..."
+    run scp $DARWIN_SSH:$TMPREMOTE/packages/*-darwin-* $PACKAGE_DIR/
+    fail_panic "Could not grab Darwin packages!"
+    dump "Cleaning up remote machine..."
+    run ssh $DARWIN_SSH rm -rf $TMPREMOTE
+    exit 0
+fi
 
 # Package a directory in a .tar.bz2 archive
 #
@@ -177,23 +203,19 @@ package_it ()
     if [ -n "$PACKAGE_DIR" ] ; then
         dump "Packaging $1 ($2.tar.bz2) ..."
         PREBUILT_PACKAGE="$PACKAGE_DIR/$2".tar.bz2
-        (cd $NDK_DIR && tar cjf $PREBUILT_PACKAGE "$3")
-        if [ $? != 0 ] ; then
-            dump "ERROR: Could not package $1!"
-            exit 1
-        fi
+        (cd $NDK_DIR && tar cjf $PREBUILT_PACKAGE $3)
+        fail_panic "Could not package $1!"
     fi
 }
 
 # Build the toolchain from sources
+# $1: toolchain name (e.g. arm-linux-androideabi-4.4.3)
+# $2: extra flags, if needed
 build_toolchain ()
 {
     dump "Building $1 toolchain... (this can be long)"
-    run $PROGDIR/build-gcc.sh $FLAGS --build-out=$BUILD_DIR/toolchain-$1 $SRC_DIR $NDK_DIR $1
-    if [ $? != 0 ] ; then
-        dump "ERROR: Could not build $1 toolchain!"
-        exit 1
-    fi
+    run $PROGDIR/build-gcc.sh $FLAGS $2 --build-out=$BUILD_DIR/toolchain-$1 $SRC_DIR $NDK_DIR $1
+    fail_panic "Could bot build $1 toolchain!"
     package_it "$1 toolchain" "$1-$HOST_TAG" "toolchains/$1/prebuilt/$HOST_TAG"
 }
 
@@ -205,18 +227,32 @@ build_gdbserver ()
     fi
     dump "Build $1 gdbserver..."
     $PROGDIR/build-gdbserver.sh $FLAGS --build-out=$BUILD_DIR/gdbserver-$1 --gdb-version=$GDB_VERSION $SRC_DIR $NDK_DIR $1
-    if [ $? != 0 ] ; then
-        dump "ERROR: Could not build $1 gdbserver!"
-        exit 1
-    fi
+    fail_panic "Could not build $1 gdbserver!"
     package_it "$1 gdbserver" "$1-gdbserver" "toolchains/$1/prebuilt/gdbserver"
 }
 
 build_toolchain arm-eabi-4.4.0
 build_gdbserver arm-eabi-4.4.0
 
-build_toolchain arm-linux-androideabi-4.4.3
+build_toolchain arm-linux-androideabi-4.4.3 --copy-libstdcxx
 build_gdbserver arm-linux-androideabi-4.4.3
+
+# We need to package the libsupc++ binaries on Linux since the GCC build
+# scripts cannot build them with --mingw option.
+if [ "$HOST_OS" = "linux" ] ; then
+    LIBSUPC_DIR="toolchains/arm-linux-androideabi-4.4.3/prebuilt/$HOST_TAG/arm-linux-androideabi/lib"
+    package_it "GNU libsupc++ armeabi libs" "gnu-libsupc++-armeabi" "$LIBSUPC_DIR/libsupc++.a $LIBSUPC_DIR/thumb/libsupc++.a"
+    package_it "GNU libsupc++ armeabi-v7a libs" "gnu-libsupc++-armeabi-v7a" "$LIBSUPC_DIR/armv7-a/libsupc++.a $LIBSUPC_DIR/armv7-a/thumb/libsupc++.a"
+fi
+
+if [ "$MINGW" != "yes" ] ; then
+    package_it "GNU libstdc++ headers" "gnu-libstdc++-headers" "sources/cxx-stl/gnu-libstdc++/include"
+    package_it "GNU libstdc++ armeabi libs" "gnu-libstdc++-libs-armeabi" "sources/cxx-stl/gnu-libstdc++/libs/armeabi"
+    package_it "GNU libstdc++ armeabi-v7a libs" "gnu-libstdc++-libs-armeabi-v7a" "sources/cxx-stl/gnu-libstdc++/libs/armeabi-v7a"
+    if [ "$OPTION_TRY_X86" = "yes" ] ; then
+        package_it "GNU libstdc++ x86 libs" "gnu-libstdc++-libs-x86" "sources/cxx-stl/gnu-libstdc++/libs/x86"
+    fi
+fi
 
 if [ "$OPTION_TRY_X86" = "yes" ] ; then
     build_toolchain x86-4.2.1
@@ -227,12 +263,17 @@ fi
 if [ "$MINGW" != "yes" ] ; then
     if [ -z "$PACKAGE_DIR" ] ; then
         BUILD_STLPORT_FLAGS="--ndk-dir=\"$NDK_DIR\""
+        TOOLCHAIN_FLAGS=
     else
         BUILD_STLPORT_FLAGS="--package-dir=\"$PACKAGE_DIR\""
+        TOOLCHAIN_FLAGS="--toolchain-pkg=\"$PACKAGE_DIR/arm-linux-androideabi-4.4.3-$HOST_TAG.tar.bz2\""
     fi
-    $ANDROID_NDK_ROOT/build/tools/build-stlport.sh $BUILD_STLPORT_FLAGS
+    $ANDROID_NDK_ROOT/build/tools/build-stlport.sh $BUILD_STLPORT_FLAGS $TOOLCHAIN_FLAGS
     if [ "$OPTION_TRY_X86" = "yes" ]; then
-        $ANDROID_NDK_ROOT/build/tools/build-stlport.sh $BUILD_STLPORT_FLAGS--abis=x86
+        if [ -n "$PACKAGE_DIR" ] ; then
+            TOOLCHAIN_FLAGS="--toolchain-pkg=\"$PACKAGE_DIR/x86-4.2.1-$HOST_TAG.tar.bz2\""
+        fi
+        $ANDROID_NDK_ROOT/build/tools/build-stlport.sh $BUILD_STLPORT_FLAGS--abis=x86 $TOOLCHAIN_FLAGS
     fi
 else
     dump "Skipping STLport binaries build (--mingw option being used)"
