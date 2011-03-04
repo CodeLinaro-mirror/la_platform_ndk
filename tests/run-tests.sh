@@ -31,8 +31,8 @@ ROOTDIR=`dirname $PROGDIR`
 . $ROOTDIR/build/core/ndk-common.sh
 
 # The list of tests that are too long to be part of a normal run of
-# run-tests.sh
-LONG_TESTS="prebuild-stlport test-stlport"
+# run-tests.sh. Most of these do not run properly at the moment.
+LONG_TESTS="prebuild-stlport test-stlport test-gnustl"
 
 #
 # Parse options
@@ -41,7 +41,7 @@ VERBOSE=no
 NDK_ROOT=
 JOBS=$BUILD_NUM_CPUS
 find_program ADB_CMD adb
-TESTABLES="samples build device"
+TESTABLES="samples build device awk"
 FULL_TESTS=no
 RUN_TESTS=
 NDK_PACKAGE=
@@ -91,6 +91,9 @@ while [ -n "$1" ]; do
         --only-device)
             TESTABLES=device
             ;;
+        --only-awk)
+            TESTABLES=awk
+            ;;
         -*) # unknown options
             echo "ERROR: Unknown option '$opt', use --help for list of valid ones."
             exit 1
@@ -123,6 +126,7 @@ if [ "$OPTION_HELP" = "yes" ] ; then
     echo "    --only-samples    Only rebuild samples"
     echo "    --only-build      Only rebuild build tests"
     echo "    --only-device     Only rebuild & run device tests"
+    echo "    --only-awk        Only run awk tests."
     echo "    --full            Run all device tests, even very long ones."
     echo ""
     echo "NOTE: You cannot use --ndk and --package at the same time."
@@ -148,9 +152,9 @@ adb_cmd ()
     fi
     if [ $VERBOSE = "yes" ] ; then
         echo "$ADB_CMD shell $@"
-        $ADB_CMD shell "$@ && echo 'OK' || echo 'KO'" | tee $ADB_CMD_LOG
+        $ADB_CMD shell $@ "&&" echo OK "||" echo KO | tee $ADB_CMD_LOG
     else
-        $ADB_CMD shell "$@ && echo 'OK' || echo 'KO'" > $ADB_CMD_LOG
+        $ADB_CMD shell $@ "&&" echo OK "||" echo KO > $ADB_CMD_LOG
     fi
     # Get last line in log, should be OK or KO
     RET=`tail -n1 $ADB_CMD_LOG`
@@ -240,6 +244,83 @@ fi
 BUILD_DIR=`mktemp -d /tmp/ndk-tests/build-XXXXXX`
 set_adb_cmd_log "$BUILD_DIR/adb-cmd.log"
 
+###
+### RUN AWK TESTS
+###
+
+# Run a simple awk script
+# $1: awk script to run
+# $2: input file
+# $3: expected output file
+# $4+: optional additional command-line arguments for the awk command
+run_awk_test ()
+{
+    local SCRIPT="$1"
+    local SCRIPT_NAME="`basename $SCRIPT`"
+    local INPUT="$2"
+    local INPUT_NAME="`basename $INPUT`"
+    local EXPECTED="$3"
+    local EXPECTED_NAME="`basename $EXPECTED`"
+    shift; shift; shift;
+    local OUTPUT="$BUILD_DIR/$EXPECTED_NAME"
+    if [ "$VERBOSE2" = "yes" ]; then
+        echo "### COMMAND: awk -f \"$SCRIPT\" $@ < \"$INPUT\" > \"$OUTPUT\""
+    fi
+    awk -f "$SCRIPT" $@ < "$INPUT" > "$OUTPUT"
+    fail_panic "Can't run awk script: $SCRIPT"
+    if [ "$VERBOSE2" = "yes" ]; then
+        echo "OUTPUT FROM SCRIPT:"
+        cat "$OUTPUT"
+        echo "EXPECTED VALUES:"
+        cat "$EXPECTED"
+    fi
+    cmp -s "$OUTPUT" "$EXPECTED"
+    if [ $? = 0 ] ; then
+        echo "Awk script: $SCRIPT_NAME: passed $INPUT_NAME"
+        if [ "$VERBOSE2" = "yes" ]; then
+            cat "$OUTPUT"
+        fi
+    else
+        if [ "$VERBOSE" = "yes" ]; then
+            run diff -burN "$EXPECTED" "$OUTPUT"
+        fi
+        echo "Awk script: $SCRIPT_NAME: $INPUT_NAME FAILED!!"
+        rm -f "$OUTPUT"
+        exit 1
+    fi
+}
+
+run_awk_test_dir ()
+{
+    local SCRIPT_NAME="`basename \"$DIR\"`"
+    local SCRIPT="$ROOTDIR/build/awk/$SCRIPT_NAME.awk"
+    local INPUT
+    local OUTPUT
+    if [ ! -f "$SCRIPT" ]; then
+        echo "Awk script: $SCRIPT_NAME: Missing script: $SCRIPT"
+        continue
+    fi
+    for INPUT in `ls "$PROGDIR"/tests/awk/$SCRIPT_NAME/*.in`; do
+        OUTPUT=`echo $INPUT | sed 's/\.in$/.out/g'`
+        if [ ! -f "$OUTPUT" ]; then
+            echo "Awk script: $SCRIPT_NAME: Missing awk output file: $OUTPUT"
+            continue
+        fi
+        run_awk_test "$SCRIPT" "$INPUT" "$OUTPUT"
+    done
+}
+
+if is_testable awk; then
+    AWKDIR="$ROOTDIR/build/awk"
+    for DIR in `ls -d "$PROGDIR"/tests/awk/*`; do
+        run_awk_test_dir "$DIR"
+    done
+fi
+
+###
+###  REBUILD ALL SAMPLES FIRST
+###
+
 NDK_BUILD_FLAGS="-B"
 # Use --verbose twice to see build commands for the tests
 if [ "$VERBOSE2" = "yes" ] ; then
@@ -255,6 +336,10 @@ build_project ()
 {
     local NAME=`basename $1`
     local DIR="$BUILD_DIR/$NAME"
+    if [ -f "$DIR/BROKEN_BUILD" ] ; then
+        echo "Skipping $1: (build)"
+        return 0
+    fi
     cp -r "$1" "$DIR"
     cd "$DIR" && run_ndk_build $NDK_BUILD_FLAGS
     if [ $? != 0 ] ; then
@@ -262,10 +347,6 @@ build_project ()
         exit 1
     fi
 }
-
-###
-###  REBUILD ALL SAMPLES FIRST
-###
 
 #
 # Determine list of samples directories.
@@ -325,7 +406,15 @@ if is_testable build; then
     build_build_test ()
     {
         echo "Building NDK build test: `basename $1`"
-        build_project $1
+        if [ -f $1/build.sh ]; then
+            run $1/build.sh
+            if [ $? != 0 ]; then
+                echo "!!! BUILD FAILURE [$1]!!! See $NDK_LOGFILE for details or use --verbose option!"
+                exit 1
+            fi
+        else
+            build_project $1
+        fi
     }
 
     for DIR in `ls -d $ROOTDIR/tests/build/*`; do
@@ -343,6 +432,11 @@ fi
 if is_testable device; then
     build_device_test ()
     {
+        # Do not build test if BROKEN_BUILD is defined
+        if [ -f "$1/BROKEN_BUILD" ] ; then
+            echo "Skipping broken device test build: `basename $1`"
+            return 0
+        fi
         echo "Building NDK device test: `basename $1`"
         build_project $1
     }
@@ -355,9 +449,14 @@ if is_testable device; then
         local DSTFILE
         local PROGRAMS=
         local PROGRAM
+        # Do not run the test if BROKEN_RUN is defined
+        if [ -f "$1/BROKEN_RUN" -o -f "$1/BROKEN_BUILD" ] ; then
+            dump "Skipping NDK device test run: `basename $1`"
+            return 0
+        fi
         # First, copy all files to /data/local, except for gdbserver
         # or gdb.setup.
-        $ADB_CMD shell mkdir $DSTDIR
+        adb_cmd mkdir -p $DSTDIR
         for SRCFILE in `ls $SRCDIR`; do
             DSTFILE=`basename $SRCFILE`
             if [ "$DSTFILE" = "gdbserver" -o "$DSTFILE" = "gdb.setup" ] ; then
@@ -384,11 +483,7 @@ if is_testable device; then
             fi
         done
         # Cleanup
-        $ADB_CMD shell rm -r $DSTDIR
-        #for SRCFILE in `ls $SRCDIR`; do
-        #    DSTFILE=`basename $SRCFILE`
-        #    $ADB_CMD shell rm $DSTDIR/$DSTFILE
-        #done
+        adb_cmd rm -r $DSTDIR
     }
 
     for DIR in `ls -d $ROOTDIR/tests/device/*`; do
@@ -405,13 +500,21 @@ if is_testable device; then
         dump "WARNING: No 'adb' in your path!"
         SKIP_TESTS=yes
     else
-        ADB_DEVCOUNT=`$ADB_CMD devices | wc -l`
-        ADB_DEVCOUNT=`expr $ADB_DEVCOUNT - 2`
+        ADB_DEVICES=`$ADB_CMD devices`
+        log2 "ADB devices: $ADB_DEVICES"
+        ADB_DEVCOUNT=`echo "$ADB_DEVICES" | wc -l`
+        ADB_DEVCOUNT=`expr $ADB_DEVCOUNT - 1`
+        log2 "ADB Device count: $ADB_DEVCOUNT"
         if [ "$ADB_DEVCOUNT" = "0" ]; then
             dump "WARNING: No device connected to adb!"
             SKIP_TESTS=yes
         elif [ "$ADB_DEVCOUNT" != 1 -a -z "$ADB_SERIAL" ] ; then
             dump "WARNING: More than one device connected to adb. Please define ADB_SERIAL!"
+            SKIP_TESTS=yes
+        fi
+        echo "$ADB_DEVICES" | grep -q -e "offline"
+        if [ $? = 0 ] ; then
+            dump "WARNING: Device is offline, can't run device tests!"
             SKIP_TESTS=yes
         fi
     fi
@@ -420,6 +523,7 @@ if is_testable device; then
         dump "SKIPPING RUNNING TESTS ON DEVICE!"
     else
         for DIR in `ls -d $ROOTDIR/tests/device/*`; do
+            log "Running device test: $DIR"
             if is_buildable $DIR; then
                 run_device_test $DIR /data/local
             fi

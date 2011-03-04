@@ -459,6 +459,22 @@ prepare_host_flags ()
     # By default, assume host == build
     ABI_CONFIGURE_HOST="$ABI_CONFIGURE_BUILD"
 
+    # On Linux, detect our legacy-compatible toolchain when in the Android
+    # source tree, and use it to force the generation of glibc-2.7 compatible
+    # binaries.
+    #
+    # We only do this if the CC variable is not defined to a given value
+    # and the --mingw option is not used.
+    #
+    if [ "$HOST_OS" = "linux" -a -z "$CC" -a "$MINGW" != "yes" ]; then
+        LEGACY_TOOLCHAIN_DIR="$ANDROID_NDK_ROOT/../prebuilt/linux-x86/toolchain/i686-linux-glibc2.7-4.4.3"
+        if [ -d "$LEGACY_TOOLCHAIN_DIR" ] ; then
+            dump "Forcing generation of Linux binaries with legacy toolchain"
+            CC="$LEGACY_TOOLCHAIN_DIR/bin/i686-linux-gcc"
+            CXX="$LEGACY_TOOLCHAIN_DIR/bin/i686-linux-g++"
+        fi
+    fi
+
     # Force generation of 32-bit binaries on 64-bit systems
     CC=${CC:-gcc}
     CXX=${CXX:-g++}
@@ -475,16 +491,40 @@ prepare_host_flags ()
                 log "Generating $version-compatible binaries!"
             fi
             ;;
-        *-x86_64)
-            # NOTE: We need to modify the definitions of CC and CXX directly
-            #        here. Just changing the value of CFLAGS / HOST_CFLAGS
-            #        will not work well with the GCC toolchain scripts.
-            CC="$CC -m32"
-            CXX="$CXX -m32"
-            HOST_GMP_ABI="32"
-            force_32bit_binaries  # to modify HOST_TAG and others
-            ;;
     esac
+
+    # Force generation of 32-bit binaries on 64-bit systems.
+    # We used to test the value of $HOST_TAG for *-x86_64, but this is
+    # not sufficient on certain systems.
+    #
+    # For example, Snow Leopard can be booted with a 32-bit kernel, running
+    # a 64-bit userland, with a compiler that generates 64-bit binaries by
+    # default *even* though "gcc -v" will report --target=i686-apple-darwin10!
+    #
+    # So know, simply probe for the size of void* by performing a small runtime
+    # compilation test.
+    #
+    cat > $TMPC <<EOF
+    /* this test should fail if the compiler generates 64-bit machine code */
+    int test_array[1-2*(sizeof(void*) != 4)];
+EOF
+    echo -n "Checking whether the compiler generates 32-bit binaries..."
+    log $CC $HOST_CFLAGS -c -o $TMPO $TMPC
+    $CC $HOST_CFLAGS -c -o $TMPO $TMPC >$TMPL 2>&1
+    if [ $? != 0 ] ; then
+        echo "no"
+        # NOTE: We need to modify the definitions of CC and CXX directly
+        #        here. Just changing the value of CFLAGS / HOST_CFLAGS
+        #        will not work well with the GCC toolchain scripts.
+        CC="$CC -m32"
+        CXX="$CXX -m32"
+    else
+        echo "yes"
+    fi
+
+    # For now, we only support building 32-bit binaries anyway
+    force_32bit_binaries  # to modify HOST_TAG and others
+    HOST_GMP_ABI="32"
 
     # Now handle the --mingw flag
     if [ "$MINGW" = "yes" ] ; then
@@ -499,6 +539,10 @@ prepare_host_flags ()
         ABI_CONFIGURE_HOST=i586-mingw32msvc
         HOST_OS=windows
         HOST_TAG=windows
+        HOST_EXE=.exe
+        # It turns out that we need to undefine this to be able to
+        # perform a canadian-cross build with mingw. Otherwise, the
+        # GMP configure scripts will not be called with the right options
         HOST_GMP_ABI=
     fi
 }
@@ -525,10 +569,11 @@ parse_toolchain_name ()
         ABI_CONFIGURE_TARGET="arm-linux-androideabi"
         ABI_CONFIGURE_EXTRA_FLAGS="--with-gmp-version=4.2.4 --with-mpfr-version=2.4.1
 --with-arch=armv5te"
-        # Enable ARM Gold linker, except for Windows where it doesn't build
-        if [ "$MINGW" != "yes" ] ; then
-            ABI_CONFIGURE_EXTRA_FLAGS="$ABI_CONFIGURE_EXTRA_FLAGS --enable-gold=both/gold"
-        fi
+        # Disable ARM Gold linker for now, it doesn't build on Windows, it
+        # crashes with SIGBUS on Darwin, and produces weird executables on
+        # linux that strip complains about... Sigh.
+        #ABI_CONFIGURE_EXTRA_FLAGS="$ABI_CONFIGURE_EXTRA_FLAGS --enable-gold=both/gold"
+
         # Enable C++ exceptions, RTTI and GNU libstdc++ at the same time
         # You can't really build these separately at the moment.
         ABI_CFLAGS_FOR_TARGET="-fexceptions"
@@ -628,11 +673,15 @@ random_temp_directory ()
 API_LEVELS="3 4 5 8 9"
 
 # Location of the STLport sources, relative to the NDK root directory
-STLPORT_SUBDIR=sources/android/stlport
+STLPORT_SUBDIR=sources/cxx-stl/stlport
 
 # Default ABIs for the prebuilt STLport binaries
 STLPORT_ABIS="armeabi armeabi-v7a"
 
+# Location of the GNU libstdc++ headers and libraries, relative to the NDK
+# root directory.
+GNUSTL_SUBDIR=sources/cxx-stl/gnu-libstdc++
+
 # The date to use when downloading toolchain sources from android.git.kernel.org
 # Leave it empty for tip of tree.
-TOOLCHAIN_GIT_DATE=2010-11-25
+TOOLCHAIN_GIT_DATE=2010-12-13

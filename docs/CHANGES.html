@@ -1,6 +1,83 @@
 <html><body><pre>Android NDK ChangeLog:
 
 -------------------------------------------------------------------------------
+android-ndk-r5b
+
+This release fixes a few bugs in r5. There are no new features.
+
+IMPORTANT BUG FIXES:
+
+- Fix a compiler bug in the arm-linux-androideabi-4.4.3 toolchain.
+  The previous binary generated invalid thumb instruction sequences when
+  dealing with signed chars. This problem was first reported on the
+  android-ndk forum and fixed by the following change in the toolchain
+  sources:
+
+        https://review.source.android.com/#change,19474
+
+- docs/CPLUSPLUS-SUPPORT.html: Add missing documentation for the
+  "gnustl_static" value for APP_STL, that allows you to link against
+  a static library version of GNU libstdc++.
+
+- ndk-build: Fix a bug that created inconsistent dependency files when a
+  compilation error occured on Windows, preventing building properly after
+  the error was fixed in the source code.
+
+- ndk-build: Fix a Cygwin-specific bug where using very short paths for
+  the Android NDK installation or the project path could lead to the
+  generation of invalid dependency files, making incremental builds
+  impossible.
+
+- Fix a typo that prevented the cpufeatures library to work correctly
+  with the new NDK toolchain.
+
+- Linux toolchain binaries now run on Ubuntu 8.04 or higher.
+  More specifically, the r5 binaries did require GLibc 2.11 on the host
+  system, and refused to run with previous releases due to an ABI mismatch
+  in the GNU C Library. The r5b binaries are generated with a special
+  toolchain that instead targets GLibc 2.7 or higher.
+
+OTHER FIXES &amp; CHANGES:
+
+- ndk-build: Speed-up the Cygwin build by avoiding calling "cygpath -m"
+  from GNU Make for each and every source or object file. This was a problem
+  for users with very large source trees.
+
+  In case this doesn't work properly, define NDK_USE_CYGPATH=1 in your
+  environment to use 'cygpath -m' as usual.
+
+  Also, if 'cygpath' is not in your path, completely ignore it
+  (seems to be enough to run the NDK under MSys).
+
+- ndk-build: Handle installation paths containing spaces when checking
+  cygwin installation. Before that, the script complained that the user
+  was using an incorrect version of GNU Make (even if he had the right one).
+
+- Fixed a typo that prevented several NDK_MODULE_PATH to work properly when
+  it contained multiple directories separated with ":"
+
+- prebuilt-common.sh: Make the script check the compiler directly for 64-bit
+  generated machine code, instead of relying on the host tag. That should
+  allow the 32-bit toolchain to rebuild properly on Snow Leopard.
+
+- prebuilt-common.sh: Fix the toolchain rebuild scripts to work when
+  using a 32-bit host toolchain.
+
+- &lt;netinet/in.h&gt;: Add missing declaration for INET_ADDRSTRLEN
+- &lt;netinet/in6.h&gt;: Add missing declaration for IN6_IS_ADDR_MC_NODELOCAL
+  and IN6_IS_ADDR_MC_GLOBAL.
+
+- &lt;asm/byteorder.&gt;: Replaced 'asm' with '__asm__' to allow compilation
+  with -std=c99. See https://review.source.android.com/#change,20076
+
+- standalone toolchain: The -fpic flag is now the default for the
+  arm-linux-androideabi toolchain, instead of -fPIC. This avoids a performance
+  degradation when compared to the old android-eabi configuration.
+
+  This only affects users of the standalone toolchain. The NDK build script
+  always enforced -fpic implicitely.
+
+-------------------------------------------------------------------------------
 android-ndk-r5
 
 IMPORTANT BUG FIXES:
@@ -25,11 +102,10 @@ IMPORTANT CHANGES:
 - Support for API level 9, (a.k.a. Android 2.3) which adds the following
   native features to the platform:
 
-     - Native audio API through the OpenSL ES Standard.
-       New headers &lt;SLES/OpenSLES.h&gt; and &lt;SLES/OpenSLES_Android.h&gt; are
-       provided to allow applications targetting this API level to perform
-       low-latency audio input, output and processing directly from native
-       code.
+     - Native audio API based on the Khronos Group OpenSL ES&#0153; 1.0.1 Standard.
+       New headers &lt;SLES/OpenSLES.h&gt; and &lt;SLES/OpenSLES_Android.h&gt;
+       are provided to allow applications targetting this API level to perform
+       audio input, output and processing directly from native code.
 
      - Native activity support, i.e. the ability to build applications that
        are coded entirely in C or C++. More precisely, such applications still
@@ -100,6 +176,10 @@ IMPORTANT CHANGES:
   it at build time by defining APP_STL in your Application.mk. See
   docs/APPLICATION-MK.html and docs/CPLUSPLUS-SUPPORT.html for all details.
 
+- GNU libstdc++ implementation: Available as a static library that you can
+  select for your application through APP_STL. See docs/CPLUSPLUS-SUPPORT.html
+  for all details.
+
 - Add support for prebuilt libraries with the PREBUILT_SHARED_LIBRARY and
   PREBUILT_STATIC_LIBRARIES build scripts. See the new documentation
   file named docs/PREBUILTS.html for explanations and usage examples.
@@ -148,12 +228,10 @@ IMPORTANT CHANGES:
   Use NDK_TOOLCHAIN=arm-eabi-4.4.0 in your environment to force its usage.
   Note that it is now deprecated and will be removed in a future NDK release.
 
+  IMPORTANT: The old toolchain doesn't properly support exceptions, RTTI,
+             STLport and GNU libstdc++.
+
   The binaries for the already-deprecated gcc-4.2.1 have been removed.
-
-- This NDK comes with a port of the STLport library, provided as an import
-  module. See sources/android/stlport/README for usage instructions.
-
-  Warning: C++ exceptions and RTTI are still not supported.
 
 - The 'cpufeatures' library has been updated to provide better architecture
   and features detection (including a work-around for buggy ARMv6 kernels
@@ -205,8 +283,8 @@ OTHER FIXES AND CHANGES:
 
 - ndk-gdb: properly launch activities for which name does not contain any dot.
 
-- ndk-gdb: add --delay=&lt;timeout&gt; option to specify a delay in seconds between
-  activity launch and gdbserver attach. This is needed because certain
+- ndk-gdb: add --delay=&lt;timeout&gt; option to specify a delay in seconds
+  between activity launch and gdbserver attach. This is needed because certain
   activities can take a long time to properly launch. The default delay is
   also increased to 2 seconds (instead of 1).
 
@@ -219,9 +297,9 @@ OTHER FIXES AND CHANGES:
   $NDK/build/toolchains and $NDK/build/prebuilt.
 
 - Release and debug objects are stored under two different directories now
-  (i.e. obj/local/&lt;abi&gt;/objs and obj/local/&lt;abi&gt;/objs-debug). This prevents
-  rebuilding *everything* when you switch between these two modes, which can
-  be a real time-saver for complex projects.
+  (i.e. obj/local/&lt;abi&gt;/objs and obj/local/&lt;abi&gt;/objs-debug). This
+  prevents rebuilding *everything* when you switch between these two modes,
+  which can be a real time-saver for complex projects.
 
 - Fixed a bug that duplicated the LOCAL_LDFLAGS in the final link command
   when LOCAL_ALLOW_UNDEFINED_SYMBOLS was not set to 'true'
