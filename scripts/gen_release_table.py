@@ -28,9 +28,9 @@ from typing import Optional
 # pylint: disable=design
 
 
-def get_lines():
+def get_lines() -> list[str]:
     """Returns all stdin input until the first empty line."""
-    lines = []
+    lines: list[str] = []
     while True:
         line = input()
         if line.strip() == "":
@@ -38,7 +38,7 @@ def get_lines():
         lines.append(line)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parses and returns command line arguments."""
     parser = argparse.ArgumentParser()
 
@@ -63,7 +63,7 @@ class Artifact:
     size: int
     sha: str
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         sort_order = {"windows": 1, "darwin": 2, "linux": 3}
         object.__setattr__(self, "sort_index", sort_order.get(self.host, 4))
 
@@ -110,7 +110,7 @@ class Artifact:
         return path.stem.split("-")[-1]
 
 
-def main():
+def main() -> None:
     """Program entry point."""
     args = parse_args()
     print(
