@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -83,24 +82,21 @@ class Artifact:
         if line.endswith(".xml") or "android-ndk" not in line:
             return None
 
-        # Real entries look like this (the leading hex number is optional):
-        # 0x1234 <sha>   123,456,789  path/to/android-ndk-r23-beta5-linux.zip
-        match = re.match(r"^(?:0x[0-9a-f]+)?\s*(\w+)\s+([0-9,]+)\s+(.+)$", line)
-        if match is None:
+        # Real entries look like this:
+        # | android/repository/android-ndk-r26d-linux.zip  | 668556491    | fcdad75a765a46a9cf6560353f480db251d14765 |
+        if not line.startswith("|"):
             logging.error("Skipping unrecognized line: %s", line)
             return None
 
-        sha = match.group(1)
+        _, path_str, size_str, sha, _ = line.split("|")
+        path = Path(path_str.strip())
+        size = int(size_str.strip())
 
-        size_str = match.group(2)
-        size = int(size_str.replace(",", ""))
-
-        path = Path(match.group(3))
         if path.suffix == ".zip" and "darwin" in path.name:
             # Ignore. We only publish the DMG on the web page.
             return None
 
-        return Artifact(cls.host_from_package_path(path), path.name, size, sha)
+        return Artifact(cls.host_from_package_path(path), path.name, size, sha.strip())
 
     @staticmethod
     def host_from_package_path(path: Path) -> str:
