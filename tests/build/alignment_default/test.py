@@ -61,7 +61,7 @@ def verify_load_section_alignment(
             return (
                 False,
                 f"LOAD section at {offset:x} has incorrect alignment {alignment:x}. "
-                f"Expected {expected_alignment:x}",
+                f"Expected {expected_alignment:x} ({path})",
             )
     return True, None
 
