@@ -1,8 +1,8 @@
 ARM Hard Float ABI Removal
 ==========================
 
-We're removing support for the armeabi-v7a-hard ABI. Anyone targeting this ABI
-should target armeabi-v7a instead.
+Support for the armeabi-v7a-hard ABI was removed in NDK r12.
+Anyone targeting this ABI should target armeabi-v7a instead.
 
 Why?
 
