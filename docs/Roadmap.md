@@ -28,11 +28,13 @@ to track the bugs we intend to fix in any given NDK release.
 
 ### Toolchain updates
 
-The NDK and the Android OS use the same toolchain. Android's toolchain team is
-constantly working on updating to the latest upstream LLVM for the OS. It can
-take a long time to investigate issues when compiling -- or issues that the
-newer compiler finds in -- OS code or OEM code, for all 4 supported
-architectures, so these updates usually take a few months.
+The NDK and the Android OS use the same toolchain (that is, C/C++ compiler,
+linker, C and C++ standard libraries, and the other tools related to building
+and debugging C/C++ code). Android's toolchain team is constantly working on
+updating to the latest upstream LLVM for the OS. It can take a long time to
+investigate issues when compiling -- or issues that the newer compiler finds in
+-- OS code or OEM code, for all 4 supported architectures, so these updates
+usually take a few months.
 
 Even then, a new OS toolchain may not be good enough for the NDK. In the OS, we
 can work around compiler bugs by changing our code, but for the NDK we want to
@@ -48,55 +50,14 @@ anything newer that we have just yet!
 
 ## Current work
 
-Most of the team's work is currently focused outside the NDK proper, so while
-the NDK release notes may seem a bit sparse, there are still plenty of
-improvements coming for NDK users:
+The NDK itself (which means the zip file that contains an LLVM distribution and
+a few other tools like ndk-build and ndk-lldb, **not** the Android OS and its
+APIs) is mostly feature complete, so ongoing work here is typically updates of
+the bundled tools, but the NDK *team* is still working on improving the NDK
+development experience in ways that won't show up in the NDK changelog:
 
-* Improving NDK and Android Gradle Plugin documentation.
-* Improving the OS (in particular the linker).
-* Working with the Android frameworks teams to get new NDK APIs.
-* Improving tooling for third-party packages via ndkports:
-  * Auto-update packages
-  * Automated testing
-  * More packages
-* Workflow improvements to decrease the costs of regular maintenance.
-
-### Apple M1
-
-https://github.com/android/ndk/issues/1299
-
-Migration of all the tools involved in an NDK build to be fat binaries will land
-over the course of a few releases. LLVM was shipped as universal binaries in
-r23b, and the rest of the tools are expected to move in r24. Further backports
-to r23 are unclear because they may risk destabilizing the release.
-
-### TSan
-
-https://github.com/android/ndk/issues/1041
-
-Port thread sanitizer for use with NDK apps, especially in unit/integration
-tests.
-
-### Testing tools
-
-Add [GTestJNI] to Jetpack to allow exposing native tests to AGP as JUnit tests.
-
-[GTestJNI]: https://github.com/danalbert/GTestJNI
-
-### More automated libc++ updates
-
-We still need to update libc++ twice: once for the platform, and once
-for the NDK. We also still have two separate test runners. We're consolidating
-all of these in one place (the toolchain) so that all LLVM updates include
-libc++ updates.
-
-### Jetpack
-
-We're working with the Jetpack team to build the infrastructure needed to start
-producing C++ Jetpack libraries. Once that's done we can start using Jetpack to
-ship helper libraries like libnativehelper, or C++ wrappers for the platform's C
-APIs. Wrappers for NDK APIs would also be able to, in some cases, backport
-support for APIs to older releases.
+* Improving NDK documentation and samples.
+* Improving the OS (in particular the dynamic linker and C library).
 
 ## Future work
 
@@ -114,11 +75,29 @@ noted here to show where the team's time is being spent.
 The following projects are things we intend to do, but have not yet been
 scheduled into the sections above.
 
+### Jetpack
+
+We'd like to explore using Jetpack to ship helper libraries like
+libnativehelper, or C++ wrappers for the platform's C APIs. Wrappers for NDK
+APIs would also be able to, in some cases, backport support for APIs to older
+releases.
+
+Some of this work has been done but continued work was blocked for build
+performance reasons. Supposedly those issues have now (July 2024) been solved,
+so when we find the time, we should investigate this again.
+
 ### Improve automation in ndkports so we can take on more packages
 
 Before we can take on maintenance for additional packages we need to improve the
 tooling for ndkports. Automation for package updates, testing, and the release
 process would make it possible to expand.
+
+### TSan
+
+https://github.com/android/ndk/issues/1041
+
+Port thread sanitizer for use with NDK apps, especially in unit/integration
+tests.
 
 ### Better documentation
 
@@ -142,11 +121,6 @@ and Visual Studio Code has nothing but feature requests.
 
 Beyond writing the documentation, we also should invest some time in improving
 the presentation of the NDK API reference on developer.android.com.
-
-### Better samples
-
-The samples are low-quality and don't necessarily cover interesting/difficult
-topics.
 
 ### Better tools for improving code quality
 
@@ -176,23 +150,23 @@ For serious i18n, `icu4c` is too big too bundle, and non-trivial to use
 the platform. We have a C API wrapper prototype, but we need to make it
 easily available for NDK users.
 
-### Weak symbols for API additions
+The OS in recent years has exposed a subset of the ICU APIs for NDK developers,
+but it's a small subset and because they're platform APIs, they're only usable
+on devices that are new enough. The wrapper is different from that in that it
+would load the library from the device even on old devices, and would be able to
+cover a broader range of APIs.
 
-iOS developers are used to using weak symbols to refer to function that
-may be present in their equivalent of `targetSdkVersion` but not in their
-`minSdkVersion`. We could potentially do something similar. See
-[issue 1003](https://github.com/android-ndk/ndk/issues/1003).
+### Make the NDK APIs a separately installable SDK package
 
-### Make the sysroot a separately installable SDK package
-
-The sysroot in the NDK is currently inherently a part of the NDK because it
-includes libc++ as well as some versioned artifacts like the CRT objects (with
-the ELF note identifying the NDK version that produced them) and
+The NDK APIs are currently tightly coupled to the rest of the NDK because the
+headers and libraries that define them are bundled with other artifacts like
+libc++ as well as some versioned artifacts like the CRT objects (with the ELF
+note identifying the NDK version that produced them) and
 `android/ndk-version.h`. Moving libc++ to the toolchain solves that coupling,
 and the others are probably tractable.
 
-While we'd always include the latest stable sysroot in the NDK toolchain so that
-it works out of the box, allowing the sysroot to be provided as a separate SDK
+While we'd always include the latest stable APIs in the NDK toolchain so that
+it works out of the box, allowing the APIs to be provided as a separate SDK
 package makes it easier for users to get new APIs without getting a new
 toolchain (via `compileSdkVersion` the same way it works for Java) and also
 easier for us to ship sysroot updates for preview API levels because they would
@@ -203,7 +177,7 @@ no longer require a full NDK release.
 Leak sanitizer has not been ported for use with Android apps but would be
 helpful to app developers in tracking down memory leaks.
 
-### Portable NDK
+### Improving portability of the NDK across Linux distros
 
 The Linux NDK is currently dependent on the version of glibc it was built with.
 To keep the NDK compatible with as many distributions as possible we build
@@ -212,9 +186,17 @@ incompatible with (especially distros that use an alternative libc!). We could
 potentially solve this by statically linking all our dependencies and/or by
 switching from glibc to musl. Not all binaries can be static executables because
 they require dlopen for plugin interfaces (even if our toolchain doesn't
-currently attempt to support user-provided compiler plugins, Polly is
-distributed this way, and we may want to offer such support in the future) so
-there are still some open questions.
+currently support user-provided compiler plugins, we may want to offer such
+support in the future) so there are still some open questions.
+
+### WASM as an IR for cloud compilation
+
+We're investigating whether it would be beneficial to upload WASM-compiled NDK
+apps rather than the fully-built binaries. This is too complex a topic to cover
+in any detail here, so see https://github.com/android/ndk/issues/1771 for
+details. This is currently an experiment, so there are no plans for a
+requirement, but we're aware that this is almost certainly not suitable for all
+apps.
 
 ### rr debugger
 
@@ -230,6 +212,23 @@ in recent releases.
 
 [history]: https://developer.android.com/ndk/downloads/revision_history.html
 
+### NDK r26
+
+Reworked our libc++ workflow so that it now comes directly from our LLVM
+distribution. For r26 and future releases, all LLVM updates now include a libc++
+from the same revision. The historical skew between the NDK's libc++ and the
+rest of LLVM is no more; the libc++ in the NDK will always be exactly as
+up-to-date as Clang.
+
+[Weak API references](https://github.com/android/ndk/issues/837), which allow
+you to call APIs that might not be available at runtime (because your
+`minSdkVersion` it too low for them to be guaranteed to be available) without
+needing to deal with `dlopen` and `dlsym` were fully rolled out in this release.
+Strictly speaking this still only works if the library that contains the APIs
+you need was available in your `minSdkVersion`, and that's not always the case,
+but this covers most use cases for the commonly chosen `minSdkVersion`s used
+today.
+
 ### NDK r25
 
 Significantly reduced the size of the NDK. Reverted to older CMake toolchain
@@ -241,6 +240,12 @@ Neon is now enabled for all armeabi-v7a libraries, improving performance for
 those apps, but dropping Tegra 2 support as a result. Removed support for
 building RenderScript, which was deprecated in Android 12. Removed obsolete GNU
 assembler and GDB. Minimum OS support raised to API 19.
+
+This release also completed most of what was left of native Apple Silicon
+support for macOS. There's one remaining tool that is not yet M1 compatible:
+yasm. yasm is not used in most builds, and in fact may not be used at all, so it
+hasn't been a priority. If native Apple Silicon support for yasm is important to
+you, please reach out on https://github.com/android/ndk/issues/1549.
 
 ### NDK r23
 
