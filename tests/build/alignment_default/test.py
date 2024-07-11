@@ -20,6 +20,7 @@ import subprocess
 import re
 from collections.abc import Iterator
 
+from ndk.abis import Abi
 from ndk.hosts import Host
 from ndk.test.spec import BuildConfiguration
 from ndk.testing.builders import CMakeBuilder, NdkBuildBuilder
@@ -88,8 +89,14 @@ def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str | Non
         ndk_build_builder.build()
     except CalledProcessError as ex:
         return False, f"Build failed:\n{ex.stdout}"
+
+    if config.abi == Abi("arm64-v8a"):
+        expected_alignment = 16 * 1024
+    else:
+        expected_alignment = 4 * 1024
+
     return verify_load_section_alignment_each_file(
         [cmake_builder.out_dir / "libfoo.so", ndk_build_builder.out_dir / "libfoo.so"],
         Path(ndk_path),
-        expected_alignment=4 * 1024,
+        expected_alignment,
     )
