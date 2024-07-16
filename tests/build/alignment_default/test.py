@@ -90,7 +90,7 @@ def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str | Non
     except CalledProcessError as ex:
         return False, f"Build failed:\n{ex.stdout}"
 
-    if config.abi == Abi("arm64-v8a"):
+    if config.abi in (Abi("arm64-v8a"), Abi("x86_64")):
         expected_alignment = 16 * 1024
     else:
         expected_alignment = 4 * 1024
