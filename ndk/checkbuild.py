@@ -502,6 +502,8 @@ class Clang(ndk.builds.Module):
                 symlinks=self.host is not Host.Windows64,
             )
 
+        self.cleanup_clang_lib_dir(install_clanglib)
+
         # The toolchain build creates a symlink to easy migration across versions in the
         # platform build. It's just confusing and wasted space in the NDK. Purge it.
         for path in install_clanglib.iterdir():
@@ -603,6 +605,52 @@ class Clang(ndk.builds.Module):
 
             if lib.name in broken_symlinks:
                 self._check_and_remove_dangling_symlink(lib)
+
+    @staticmethod
+    def cleanup_clang_lib_dir(path: Path) -> None:
+        """Removes all the unused library directories from lib/clang.
+
+        lib/clang/$VERSION/lib contains all the toolchain runtime libraries
+        needed to support each target (mostly all the libclang_rt libraries like
+        builtins and hwasan). There are two layout options for this directory:
+
+        1. lib/linux, with the target information (like aarch64-android) being a part of
+           the library's file name.
+        2. lib/$TRIPLE, with generic library names
+
+        Android's libraries still use layout 1, but all the other targets the Android
+        toolchain supports (but the NDK does not), such as aarch64-unknown-linux-musl,
+        use layout 2.
+
+        Those non-Android libraries are all dead weight, so purge every directory in
+        lib/clang/$VERSION that isn't "linux".
+        """
+        # There should only be one directory in lib/clang, since we've already purged
+        # the pointless symlink to the versioned directory. If there's something more in
+        # here, the layout isn't what we expect any more; fail the build so someone
+        # looks more closely.
+        entries = list(path.iterdir())
+        if len(entries) != 1:
+            raise RuntimeError(
+                f"Expected exactly one entry in {path}, found {len(entries)}"
+            )
+        versioned_dir = entries[0]
+        lib_dir = versioned_dir / "lib"
+        linux_dir = lib_dir / "linux"
+        if not linux_dir.exists():
+            raise RuntimeError(
+                f"{linux_dir} does not exist. The toolchain layout has changed."
+            )
+
+        for entry in lib_dir.iterdir():
+            if not entry.is_dir():
+                raise RuntimeError(
+                    f"Unexpected non-directory found in f{lib_dir}. The "
+                    "toolchain layout has probably changed."
+                )
+
+            if entry.name != "linux":
+                shutil.rmtree(entry)
 
     def _check_and_remove_dangling_symlink(self, path: Path) -> None:
         """Removes an expected dangling symlink, or raises an error.

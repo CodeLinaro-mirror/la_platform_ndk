@@ -18,6 +18,7 @@ directly, see the [build system maintainers guide].
 
 - Updated LLVM to clang-r530567. See `clang_source_info.md` in the toolchain
   directory for version information.
+  - Runtime libraries for non-Android have been removed reduce disk usage.
 - `PAGE_SIZE` is no longer defined by default for arm64-v8a or x86_64. To
   re-enable, set `APP_SUPPORT_FLEXIBLE_PAGE_SIZES` (ndk-build) or
   `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES` (CMake) to false. See [Support 16 KB
