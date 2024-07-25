@@ -191,10 +191,10 @@ class PrebuiltsRepo:
         self.platform = platform
 
     async def prepare_for_install(self, force: bool) -> None:
-        await self.ensure_latest_master(force)
+        await self.ensure_latest_main(force)
         await self.remove_contents()
 
-    async def ensure_latest_master(self, force: bool) -> None:
+    async def ensure_latest_main(self, force: bool) -> None:
         """Clones or updates the NDK prebuilt repo in self.git_repo_path."""
         if (self.path / ".git").exists():
             await self.update_git_repo(force)
@@ -205,7 +205,7 @@ class PrebuiltsRepo:
         """Updates the NDK prebuilt repo in self.path."""
         if not force:
             await self.check_if_repo_clean()
-        await self.checkout_master(force)
+        await self.checkout_main(force)
         if force:
             await self._git(["clean", "-df"])
         await self._git(["pull"])
@@ -219,12 +219,12 @@ class PrebuiltsRepo:
                 f"untracked files:\n{output}"
             )
 
-    async def checkout_master(self, force: bool) -> None:
-        """Switches to the master branch."""
+    async def checkout_main(self, force: bool) -> None:
+        """Switches to the main branch."""
         args = ["checkout"]
         if force:
             args.append("-f")
-        args.append("master")
+        args.append("main")
         await self._git(args)
 
     async def clone_git_repo(self) -> None:
@@ -311,7 +311,7 @@ class PrebuiltsRepo:
         )
 
     async def upload(self) -> None:
-        await self._git(["push", "-o", "banned-words~skip", "origin", "HEAD:refs/for/master"])
+        await self._git(["push", "-o", "banned-words~skip", "origin", "HEAD:refs/for/main"])
 
 
 class App:
