@@ -28,6 +28,7 @@ import sys
 import textwrap
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
+from ndk.hosts import Host
 from pathlib import Path
 from tempfile import TemporaryDirectory, mkdtemp
 from typing import ContextManager
@@ -99,18 +100,19 @@ class NdkSource(ABC):
         """Infers the major version from the source, if possible."""
 
     @staticmethod
-    def from_str(ndk_source: str) -> NdkSource:
+    def from_str(ndk_source: str, platform: Host) -> NdkSource:
         if ndk_source.startswith("r"):
-            return ReleasedNdk(ndk_source)
+            return ReleasedNdk(ndk_source, platform)
         if (path := Path(ndk_source)).exists():
-            return ZippedNdk(path)
-        return CanaryNdk(ndk_source)
+            return ZippedNdk(path, platform)
+        return CanaryNdk(ndk_source, platform)
 
 
 class ReleasedNdk(NdkSource):
-    def __init__(self, version: str) -> None:
+    def __init__(self, version: str, platform: Host) -> None:
         super().__init__()
         self.version = version
+        self.platform = platform.value
 
     def commit_summary(self) -> str:
         return f"Update to NDK {self.version}."
@@ -125,7 +127,7 @@ class ReleasedNdk(NdkSource):
 
     @property
     def url(self) -> str:
-        return f"https://dl.google.com/android/repository/android-ndk-{self.version}-linux.zip"
+      return f"https://dl.google.com/android/repository/android-ndk-{self.version}-{self.platform}.zip"
 
     async def download_zip(self, destination: Path) -> None:
         logging.info("Downloading NDK from %s", self.url)
@@ -137,9 +139,10 @@ class ReleasedNdk(NdkSource):
 
 
 class CanaryNdk(NdkSource):
-    def __init__(self, build_id: str) -> None:
+    def __init__(self, build_id: str, platform: Host) -> None:
         super().__init__()
         self.build_id = build_id
+        self.platform = platform.value
 
     def commit_summary(self) -> str:
         return f"Update to canary build {self.build_id}."
@@ -153,7 +156,7 @@ class CanaryNdk(NdkSource):
                 async for chunk in fetch_artifact_chunked(
                     "linux",
                     self.build_id,
-                    f"android-ndk-{self.build_id}-linux-x86_64.zip",
+                    f"android-ndk-{self.build_id}-{self.platform}-x86_64.zip",
                     session,
                 ):
                     output.write(chunk)
@@ -176,11 +179,16 @@ class ZippedNdk(NdkSource):
 
 class PrebuiltsRepo:
     def __init__(
-        self, path: Path, ndk_major_version: int | None, ndk_source: NdkSource
+        self,
+        path: Path,
+        ndk_major_version: int | None,
+        ndk_source: NdkSource,
+        platform: Host,
     ) -> None:
         self.path = path
         self.ndk_major_version = ndk_major_version
         self.ndk_source = ndk_source
+        self.platform = platform
 
     async def prepare_for_install(self, force: bool) -> None:
         await self.ensure_latest_master(force)
@@ -223,6 +231,8 @@ class PrebuiltsRepo:
         """Clones the NDK prebuilt repo in self.git_repo_path."""
         assert self.ndk_major_version is not None
         repo_base = "https://android.googlesource.com/toolchain/prebuilts/ndk"
+        if self.platform == Host.Darwin:
+            repo_base += "-darwin"
         await run(
             [
                 "git",
@@ -233,7 +243,7 @@ class PrebuiltsRepo:
         )
 
     async def remove_contents(self) -> None:
-        await self._git(["rm", "-rf", "."])
+        await self._git(["rm", "-rf", "--ignore-unmatch", "."])
 
     async def _git(self, cmd: list[str]) -> None:
         await run(["git", "-C", str(self.path)] + cmd)
@@ -301,7 +311,7 @@ class PrebuiltsRepo:
         )
 
     async def upload(self) -> None:
-        await self._git(["push", "origin", "HEAD:refs/for/master"])
+        await self._git(["push", "-o", "banned-words~skip", "origin", "HEAD:refs/for/master"])
 
 
 class App:
@@ -311,9 +321,10 @@ class App:
         ndk_major_version: int | None,
         working_directory: Path,
         force_reset_git_repo: bool,
+        platform: Host,
     ) -> None:
         self.prebuilts_repo = PrebuiltsRepo(
-            working_directory / "git_repo", ndk_major_version, ndk_source
+            working_directory / "git_repo", ndk_major_version, ndk_source, platform
         )
         self.ndk_source = ndk_source
         self.working_directory = working_directory
@@ -357,6 +368,13 @@ class App:
     @click.option(
         "-f", "--force", is_flag=True, help="Forcibly resets the state of --git-repo."
     )
+    @click.option(
+        "-p", "--platform",
+        type=click.Choice([platform.value for platform in Host], case_sensitive=False),
+        default=Host.Linux.value,
+        callback=lambda _, __, x: Host(x.lower()),
+        help="Sets host platform to update."
+    )
     @click.argument("ndk_source")
     def main(
         working_directory: Path | None,
@@ -364,8 +382,9 @@ class App:
         ndk_source: str,
         ndk_major_version: int | None,
         force: bool,
+        platform: Host,
     ) -> None:
-        """Updates the NDK checked in to toolchain/prebuilts/ndk/$VERSION.
+        """Updates the NDK checked in to toolchain/prebuilts/ndk[-darwin]/$VERSION.
 
         NDK_SOURCE is the version of the NDK to install to prebuilts. This can be
         either an NDK version name such as r25c, which will download that release from
@@ -376,7 +395,7 @@ class App:
         """
         log_levels = [logging.WARNING, logging.INFO, logging.DEBUG]
         logging.basicConfig(level=log_levels[min(verbose, len(log_levels) - 1)])
-        ndk = NdkSource.from_str(ndk_source)
+        ndk = NdkSource.from_str(ndk_source, platform)
         if ndk_major_version is None:
             ndk_major_version = ndk.infer_major_version()
         if ndk_major_version is None:
@@ -398,4 +417,4 @@ class App:
                     "system's temp directory is not case-sensitive, you must use "
                     "--working-directory."
                 )
-            asyncio.run(App(ndk, ndk_major_version, temp_dir, force).run())
+            asyncio.run(App(ndk, ndk_major_version, temp_dir, force, platform).run())
