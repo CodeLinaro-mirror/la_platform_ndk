@@ -2174,7 +2174,12 @@ class SourceProperties(ndk.builds.Module):
             if ndk.config.beta > 0:
                 version += "-beta{}".format(ndk.config.beta)
             source_properties.writelines(
-                ["Pkg.Desc = Android NDK\n", "Pkg.Revision = {}\n".format(version)]
+                [
+                    "Pkg.Desc = Android NDK\n",
+                    "Pkg.Revision = {}\n".format(version),
+                    "Pkg.BaseRevision = {}\n".format(version),
+                    "Pkg.ReleaseName = {}\n".format(ndk.config.release),
+                ]
             )
 
 
