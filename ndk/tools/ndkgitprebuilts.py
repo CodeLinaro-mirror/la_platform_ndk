@@ -28,7 +28,6 @@ import sys
 import textwrap
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
-from ndk.hosts import Host
 from pathlib import Path
 from tempfile import TemporaryDirectory, mkdtemp
 from typing import ContextManager
@@ -36,6 +35,8 @@ from typing import ContextManager
 import click
 from aiohttp import ClientSession
 from fetchartifact import fetch_artifact_chunked
+
+from ndk.hosts import Host
 
 
 def is_filesystem_case_sensitive(path: Path) -> bool:
@@ -127,7 +128,7 @@ class ReleasedNdk(NdkSource):
 
     @property
     def url(self) -> str:
-      return f"https://dl.google.com/android/repository/android-ndk-{self.version}-{self.platform}.zip"
+        return f"https://dl.google.com/android/repository/android-ndk-{self.version}-{self.platform}.zip"
 
     async def download_zip(self, destination: Path) -> None:
         logging.info("Downloading NDK from %s", self.url)
@@ -311,7 +312,9 @@ class PrebuiltsRepo:
         )
 
     async def upload(self) -> None:
-        await self._git(["push", "-o", "banned-words~skip", "origin", "HEAD:refs/for/main"])
+        await self._git(
+            ["push", "-o", "banned-words~skip", "origin", "HEAD:refs/for/main"]
+        )
 
 
 class App:
@@ -369,11 +372,12 @@ class App:
         "-f", "--force", is_flag=True, help="Forcibly resets the state of --git-repo."
     )
     @click.option(
-        "-p", "--platform",
+        "-p",
+        "--platform",
         type=click.Choice([platform.value for platform in Host], case_sensitive=False),
         default=Host.Linux.value,
         callback=lambda _, __, x: Host(x.lower()),
-        help="Sets host platform to update."
+        help="Sets host platform to update.",
     )
     @click.argument("ndk_source")
     def main(
