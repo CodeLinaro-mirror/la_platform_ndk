@@ -105,7 +105,7 @@ class NdkSource(ABC):
         if ndk_source.startswith("r"):
             return ReleasedNdk(ndk_source, platform)
         if (path := Path(ndk_source)).exists():
-            return ZippedNdk(path, platform)
+            return ZippedNdk(path)
         return CanaryNdk(ndk_source, platform)
 
 
