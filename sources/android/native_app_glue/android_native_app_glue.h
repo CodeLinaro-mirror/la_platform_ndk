@@ -42,8 +42,9 @@ extern "C" {
  * loop in a different thread instead. Here's how it works:
  *
  * 1/ The application must provide a function named "android_main()" that
- *    will be called when the activity is created, in a new thread that is
- *    distinct from the activity's main thread.
+ *    will be called when the activity is created (and again every time the
+ *    activity is recreated), in a new thread that is distinct from the
+ *    activity's main thread.
  *
  * 2/ android_main() receives a pointer to a valid "android_app" structure
  *    that contains references to other important objects, e.g. the
@@ -157,6 +158,7 @@ struct android_app {
 
     // This is non-zero when the application's NativeActivity is being
     // destroyed and waiting for the app thread to complete.
+    // Your android_main() must return to its caller when this is non-zero.
     int destroyRequested;
 
     // -------------------------------------------------
@@ -342,6 +344,8 @@ app_dummy();
 /**
  * This is the function that application code must implement, representing
  * the main entry to the app.
+ *
+ * This is called every time the activity is recreated.
  */
 extern void android_main(struct android_app* app);
 
