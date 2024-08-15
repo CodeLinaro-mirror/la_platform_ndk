@@ -307,6 +307,15 @@ if(NOT CMAKE_FIND_ROOT_PATH_MODE_INCLUDE)
   set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 endif()
 
+# This is annoying because it means users that use `CMAKE_PREFIX_PATH` to try to
+# get `find_package` to locate packages built separately won't be able to find
+# them without explicitly disabling this when calling `find_package` (or passing
+# their own CMAKE_FIND_ROOT_PATH_MODE_PACKAGE to prevent us from setting it to
+# ONLY). It doesn't seem we can remove it without causing host directories to be
+# searched though.
+#
+# See https://github.com/android/ndk/issues/2048 for the most recent attempt at
+# changing this.
 if(NOT CMAKE_FIND_ROOT_PATH_MODE_PACKAGE)
   set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 endif()
