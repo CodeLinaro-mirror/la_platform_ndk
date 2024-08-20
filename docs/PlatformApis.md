@@ -183,45 +183,23 @@ binaries contain NDK version information).
 
 ### Updating the Sysroot
 
-The NDK sysroot is provided as prebuilts in prebuilts/ndk/platform. To update
-these, use prebuilts/ndk/update\_platform.py. Prebuilts suitable for check-in
-must be taken from the build servers. However, to test changes that have not yet
-been submitted to the platform, do the following:
+The NDK sysroot is provided as prebuilts in `//prebuilts/ndk/platform`. To
+update these, use `poetry run update-sysroot` (from the `//ndk` directory).
+Prebuilts suitable for check-in must be taken from the build servers. However,
+to test changes that have not yet been submitted to the platform, do the
+following:
 
 ```bash
 $ cd path/to/platform
 $ OUT_DIR=ndk-out DIST_DIR=ndk-dist build/soong/scripts/build-ndk-prebuilts.sh
-$ cd path/to/ndk/prebuilts/ndk
-$ ./update_platform.py --no-download \
+$ cd path/to/ndk/ndk
+$ poetry run update-sysroot --no-download \
     path/to/platform/ndk-dist/ndk_platform.tar.bz2
 ```
 
 Note that most branches will include at least one codenamed release in the
-sysroot artifacts. Clang only handles integer API levels, so these will cause an
-error when updating the prebuilts if any codenames are found. To avoid such
-errors, use either `--remove-platform` or `--rename-codename` when updating.
-Whether the platform should be removed or renamed depends on the status of the
-release. For releases accompanying an Android developer preview the platform
-should be renamed, but for other releases the APIs should be removed.
+sysroot artifacts. Clang only handles integer API levels, so these directories
+must be renamed when creating the sysroot. This is done automatically by
+`update-sysroot` based on the contents of [meta/platforms.json].
 
-For example, prior to the Android R developer previews being available
-`--remove-platform R` was used. To include R API previews
-`--rename-codename R=30` was used.
-
-#### Possible problems
-If you get the error message like
-```bash
-RuntimeError: Could not rename android-something to android-xx because android-xx already exists.
-```
-when running
-```bash
-$ ./update_platform.py --no-download path/to/platform/ndk-dist/ndk_platform.tar.bz2
-```
-It it because `android-something` is in the `ndk-out/soong/ndk/platform`.
-
-Solution:
-Do a clean rebuild.
-```bash
-$ rm -rf path/to/platform/ndk-out
-$ ./update_platform.py --no-download path/to/platform/ndk-dist/ndk_platform.tar.bz2
-```
+[meta/platforms.json]: ../meta/platforms.json
