@@ -30,6 +30,22 @@ directly, see the [build system maintainers guide].
 
   Known issue: x86_64 is still 4k aligned by default. That will be fixed before
   final release.
+- [Issue 2058]: [Weak API references] now work for libc APIs. This was enabled
+  by removing the explicit `#if __ANDROID_API__ >= ...` guards that previously
+  wrapped declarations in libc headers.
+
+  If your project contains polyfills for any of those APIs, this change may
+  break your build due to the conflicting declarations. The simplest fix is to
+  rename your polyfill to not collide with libc. For example, rename
+  `conflicting_api` to `conflicting_api_fallback` and call that instead. Use
+  `#define conflicting_api() conflicting_api_fallback()` if you want to avoid
+  rewriting callsites.
+
+  Please open a bug if you run into issues with existing polyfills. We may be
+  able to add the polyfill directly to the NDK.
+
+[Issue 2058]: https://github.com/android/ndk/issues/2058
+[Weak API references]: http://go/android-dev/ndk/guides/using-newer-apis
 
 [Support 16 KB page sizes]:
   https://developer.android.com/guide/practices/page-sizes
