@@ -30,6 +30,12 @@ directly, see the [build system maintainers guide].
 
   Known issue: x86_64 is still 4k aligned by default. That will be fixed before
   final release.
+- [Issue 1307]: Removed non-NDK binder headers. A number of binder headers that
+  should have been shipped with aidl were mistakenly shipped in the NDK. These
+  headers are tightly coupled to the version of aidl used, so this introduced an
+  unwanted version restriction between build-tools and the NDK. If you are using
+  the NDK aidl backend, you will need to pass the aidl include path when
+  building. See the [aidl backend] docs for more information.
 - [Issue 2058]: [Weak API references] now work for libc APIs. This was enabled
   by removing the explicit `#if __ANDROID_API__ >= ...` guards that previously
   wrapped declarations in libc headers.
@@ -44,6 +50,8 @@ directly, see the [build system maintainers guide].
   Please open a bug if you run into issues with existing polyfills. We may be
   able to add the polyfill directly to the NDK.
 
+[aidl backend]: https://source.android.com/docs/core/architecture/aidl/aidl-backends#core-build-system
+[Issue 1307]: https://github.com/android/ndk/issues/1307
 [Issue 2058]: https://github.com/android/ndk/issues/2058
 [Weak API references]: http://go/android-dev/ndk/guides/using-newer-apis
 
