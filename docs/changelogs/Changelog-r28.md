@@ -27,9 +27,6 @@ directly, see the [build system maintainers guide].
   To revert to 4k alignment, set `APP_SUPPORT_FLEXIBLE_PAGE_SIZES` (ndk-build)
   or `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES` (CMake) to false. See [Support 16 KB
   page sizes] for more information.
-
-  Known issue: x86_64 is still 4k aligned by default. That will be fixed before
-  final release.
 - [Issue 1307]: Removed non-NDK binder headers. A number of binder headers that
   should have been shipped with aidl were mistakenly shipped in the NDK. These
   headers are tightly coupled to the version of aidl used, so this introduced an
