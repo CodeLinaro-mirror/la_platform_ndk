@@ -14,6 +14,9 @@ directly, see the [build system maintainers guide].
 
 ## Announcements
 
+- The 16 KiB page size compatibility option that was added in r27 is now on by
+  default. If necessary, you can still opt-out (see below).
+
 ## Changes
 
 - Updated LLVM to clang-r530567. See `clang_source_info.md` in the toolchain
