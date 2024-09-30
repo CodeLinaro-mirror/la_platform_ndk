@@ -22,6 +22,9 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, Sequence, Tuple
+from pathlib import Path
+import asyncio
+import shlex
 
 # TODO: Remove in favor of subprocess.run.
 
@@ -82,3 +85,17 @@ def verbose_subprocess_errors() -> Iterator[None]:
         if ex.stderr is not None:
             ex.add_note(f"stderr:\n{ex.stderr}")
         raise
+
+
+async def async_run(
+    cmd: Sequence[str | Path], check: bool, cwd: Path | None = None
+) -> asyncio.subprocess.Process:
+    """Runs and logs an asyncio subprocess."""
+    logger().debug("exec CWD=%s %s", cwd or Path.cwd(), shlex.join(str(a) for a in cmd))
+    proc = await asyncio.create_subprocess_exec(cmd[0], *cmd[1:], cwd=cwd)
+    await proc.communicate()
+    if check and proc.returncode != 0:
+        raise RuntimeError(
+            f"Command failed: CWD={cwd or Path.cwd()} {shlex.join(str(a) for a in cmd)}"
+        )
+    return proc
