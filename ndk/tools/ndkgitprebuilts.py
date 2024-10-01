@@ -36,6 +36,7 @@ import click
 from aiohttp import ClientSession
 from fetchartifact import fetch_artifact_chunked
 
+from ndk.ext.subprocess import async_run
 from ndk.hosts import Host
 
 
@@ -52,15 +53,6 @@ def is_filesystem_case_sensitive(path: Path) -> bool:
         return not (temp_dir / "A").exists()
     finally:
         shutil.rmtree(temp_dir)
-
-
-async def run(cmd: list[str], cwd: Path | None = None) -> None:
-    """Runs and logs an asyncio subprocess."""
-    logging.debug("exec CWD=%s %s", cwd or Path.cwd(), shlex.join(cmd))
-    proc = await asyncio.create_subprocess_exec(cmd[0], *cmd[1:], cwd=cwd)
-    await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f"Command failed: CWD={cwd or Path.cwd()} {shlex.join(cmd)}")
 
 
 async def run_piped(cmd: list[str], cwd: Path | None = None) -> bytes:
@@ -234,20 +226,21 @@ class PrebuiltsRepo:
         repo_base = "https://android.googlesource.com/toolchain/prebuilts/ndk"
         if self.platform == Host.Darwin:
             repo_base += "-darwin"
-        await run(
+        await async_run(
             [
                 "git",
                 "clone",
                 f"{repo_base}/r{self.ndk_major_version}",
                 str(self.path),
-            ]
+            ],
+            check=True,
         )
 
     async def remove_contents(self) -> None:
         await self._git(["rm", "-rf", "--ignore-unmatch", "."])
 
     async def _git(self, cmd: list[str]) -> None:
-        await run(["git", "-C", str(self.path)] + cmd)
+        await async_run(["git", "-C", str(self.path)] + cmd, check=True)
 
     async def _git_piped(self, cmd: list[str]) -> bytes:
         return await run_piped(["git", "-C", str(self.path)] + cmd)
@@ -266,7 +259,7 @@ class PrebuiltsRepo:
             shutil.rmtree(temp_dir)
         temp_dir.mkdir()
         try:
-            await run(["unzip", "-d", str(temp_dir), str(ndk_zip)])
+            await async_run(["unzip", "-d", str(temp_dir), str(ndk_zip)], check=True)
             # We should have extracted a single directory.
             subdirs = list(temp_dir.iterdir())
             assert len(subdirs) == 1

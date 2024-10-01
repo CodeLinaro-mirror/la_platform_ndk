@@ -6,6 +6,7 @@ authors = ["The Android Open Source Project"]
 license = "Apache-2.0"
 
 [tool.poetry.scripts]
+test-release = "ndk.tools.testrelease:App.main"
 update-prebuilt-ndk = "ndk.tools.ndkgitprebuilts:App.main"
 update-sysroot = "ndk.tools.updatesysroot:App.main"
 
