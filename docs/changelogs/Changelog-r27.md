@@ -27,6 +27,21 @@ directly, see the [build system maintainers guide].
 
 [Support 16 KB page sizes]: https://developer.android.com/guide/practices/page-sizes
 
+## r27c
+
+* Updated LLVM to clang-r522817c. See `clang_source_info.md` in the toolchain
+  directory for version information.
+  * [Issue 2040]: Further fixes for miscompiles of indirect gotos.
+  * [Issue 2064]: Fix HWAsan miscompilation.
+  * [Issue 2070]: Fix crash in instantiation of function definitions.
+  * [Issue 2084]: Fix for incorrect compiler error on overloaded member
+    functions with ref-qualifiers.
+
+[Issue 2040]: https://github.com/android/ndk/issues/2040
+[Issue 2064]: https://github.com/android/ndk/issues/2064
+[Issue 2070]: https://github.com/android/ndk/issues/2070
+[Issue 2084]: https://github.com/android/ndk/issues/2084
+
 ## r27b
 
 * Updated LLVM to clang-r522817b. See `clang_source_info.md` in the toolchain
