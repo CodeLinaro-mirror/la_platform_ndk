@@ -71,16 +71,16 @@ def rename(src: Path, dst: Path) -> None:
     src.rename(dst)
 
 
-async def fetch_artifact(target: str, build_id: str, name: str) -> None:
+async def fetch_artifact(
+    session: ClientSession, target: str, build_id: str, name: str, destination: Path
+) -> None:
     """Fetches an artifact from the build server.
 
     The downloaded artifact will be written to the current working directory.
     """
-    destination = Path(name)
-    async with ClientSession() as session:
-        with destination.open("wb") as output:
-            async for chunk in fetch_artifact_chunked(target, build_id, name, session):
-                output.write(chunk)
+    with destination.open("wb") as output:
+        async for chunk in fetch_artifact_chunked(target, build_id, name, session):
+            output.write(chunk)
 
 
 class App:
@@ -128,11 +128,9 @@ class App:
         destination.parent.mkdir(parents=True, exist_ok=True)
         print(f"Downloading {host} {TEST_ARTIFACT_NAME} of {self.build_id}...")
         async with ClientSession() as session:
-            with destination.open("wb") as output:
-                async for chunk in fetch_artifact_chunked(
-                    target, self.build_id, TEST_ARTIFACT_NAME, session
-                ):
-                    output.write(chunk)
+            await fetch_artifact(
+                session, target, self.build_id, TEST_ARTIFACT_NAME, destination
+            )
         return destination
 
     async def extract(self, tarball: Path, host: Host) -> Path:
