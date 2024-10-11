@@ -25,6 +25,7 @@ isort = "^5.13.2"
 gdbrunner = { path = "../development/python-packages/gdbrunner" }
 adb = { path = "../development/python-packages/adb" }
 pytest-cov = "^4.1.0"
+rich = "^13.9.2"
 
 [tool.black]
 # The default includes "build", which excludes both build/ and tests/build.

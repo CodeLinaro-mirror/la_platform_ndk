@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+from collections.abc import AsyncIterable
 from contextlib import nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -33,7 +34,20 @@ from typing import ContextManager
 
 import click
 from aiohttp import ClientSession
-from fetchartifact import fetch_artifact_chunked
+from fetchartifact import DEFAULT_CHUNK_SIZE, ArtifactDownloader
+from rich.console import Group
+from rich.live import Live
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 
 from ndk.ext.subprocess import async_run
 from ndk.hosts import Host
@@ -71,15 +85,59 @@ def rename(src: Path, dst: Path) -> None:
     src.rename(dst)
 
 
+class RichProgressDownloader(ArtifactDownloader):
+    def __init__(
+        self, progress: Progress, target: str, build_id: str, artifact_name: str
+    ) -> None:
+        super().__init__(target, build_id, artifact_name)
+        self.progress = progress
+        self.progress_task: TaskID | None = None
+        self.label = f"{self.target} {self.build_id} {self.artifact_name}"
+        # Only needed so we can set the total on the progress bar when done if
+        # the content length was never reported.
+        self.total_downloaded = 0
+
+    async def download(
+        self, session: ClientSession, chunk_size: int = DEFAULT_CHUNK_SIZE
+    ) -> AsyncIterable[bytes]:
+        self.progress_task = self.progress.add_task(
+            f"Downloading {self.label}", total=None
+        )
+        async for chunk in super().download(session, chunk_size):
+            yield chunk
+        self.progress.update(self.progress_task, total=self.total_downloaded)
+
+    def on_artifact_size(self, size: int) -> None:
+        super().on_artifact_size(size)
+        if self.progress_task is None:
+            raise RuntimeError(
+                f"{self.label} received artifact size before download began"
+            )
+        self.progress.update(self.progress_task, total=size)
+
+    def after_chunk(self, size: int) -> None:
+        super().after_chunk(size)
+        if self.progress_task is None:
+            raise RuntimeError(f"{self.label} received chunk before download began")
+        self.progress.update(self.progress_task, advance=size)
+        self.total_downloaded += size
+
+
 async def fetch_artifact(
-    session: ClientSession, target: str, build_id: str, name: str, destination: Path
+    session: ClientSession,
+    progress: Progress,
+    target: str,
+    build_id: str,
+    name: str,
+    destination: Path,
 ) -> None:
     """Fetches an artifact from the build server.
 
     The downloaded artifact will be written to the current working directory.
     """
+    downloader = RichProgressDownloader(progress, target, build_id, name)
     with destination.open("wb") as output:
-        async for chunk in fetch_artifact_chunked(target, build_id, name, session):
+        async for chunk in downloader.download(session):
             output.write(chunk)
 
 
@@ -89,10 +147,33 @@ class App:
         self.working_directory = working_directory
 
     async def run(self) -> None:
-        async with ClientSession() as session:
-            test_dirs_by_host = await asyncio.gather(
-                *(self.prepare_test_dir(session, host) for host in Host)
-            )
+        download_progress = Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            # "binary" means SI, for some reason.
+            DownloadColumn(binary_units=True),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+        )
+        extract_progress = Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+        )
+
+        group = Group(download_progress, extract_progress)
+        with Live(group):
+            async with ClientSession() as session:
+                test_dirs_by_host = await asyncio.gather(
+                    *(
+                        self.prepare_test_dir(
+                            session, download_progress, extract_progress, host
+                        )
+                        for host in Host
+                    )
+                )
 
         # TODO: Refactor the guts of run_tests.py so we can run all hosts in one shot.
         # There are some idle workers at the end of each host run while a few slow tests
@@ -111,13 +192,19 @@ class App:
                 raise
 
     async def prepare_test_dir(
-        self, session: ClientSession, host: Host
+        self,
+        session: ClientSession,
+        download_progress: Progress,
+        extract_progress: Progress,
+        host: Host,
     ) -> tuple[Host, Path]:
-        tarball = await self.download_test_artifact(session, host)
-        extracted = await self.extract(tarball, host)
+        tarball = await self.download_test_artifact(session, download_progress, host)
+        extracted = await self.extract(extract_progress, tarball, host)
         return host, extracted
 
-    async def download_test_artifact(self, session: ClientSession, host: Host) -> Path:
+    async def download_test_artifact(
+        self, session: ClientSession, progress: Progress, host: Host
+    ) -> Path:
         target = {
             Host.Darwin: "darwin_mac",
             Host.Linux: "linux",
@@ -126,24 +213,29 @@ class App:
 
         destination = self.working_directory / host.name / TEST_ARTIFACT_NAME
         destination.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Downloading {host} {TEST_ARTIFACT_NAME} of {self.build_id}...")
         async with ClientSession() as session:
             await fetch_artifact(
-                session, target, self.build_id, TEST_ARTIFACT_NAME, destination
+                session,
+                progress,
+                target,
+                self.build_id,
+                TEST_ARTIFACT_NAME,
+                destination,
             )
         return destination
 
-    async def extract(self, tarball: Path, host: Host) -> Path:
+    async def extract(self, progress: Progress, tarball: Path, host: Host) -> Path:
         extract_dir = self.working_directory / host.name / "tests"
         if extract_dir.exists():
             rmtree(extract_dir)
         extract_dir.mkdir(parents=True, exist_ok=False)
 
-        print(f"Extracting {host} tests...")
+        task_id = progress.add_task(f"Extracting {host} tests", total=None)
         await async_run(
             ["tar", "xf", tarball, "-C", extract_dir, "--strip-components=1"],
             check=True,
         )
+        progress.update(task_id, total=1, completed=1)
         return extract_dir
 
     @staticmethod
