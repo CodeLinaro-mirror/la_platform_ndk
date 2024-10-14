@@ -40,7 +40,7 @@ class TestVerboseSubprocessErrors:
                 bar
                 """
             )
-            == "".join(traceback.format_exception_only(excinfo.value))
+            == "".join(traceback.format_exception_only(None, value=excinfo.value))
         )
 
     def test_capture_stdout(self) -> None:
@@ -55,7 +55,7 @@ class TestVerboseSubprocessErrors:
                 foo
                 """
             )
-            == "".join(traceback.format_exception_only(excinfo.value))
+            == "".join(traceback.format_exception_only(None, value=excinfo.value))
         )
 
     def test_capture_stderr(self) -> None:
@@ -70,7 +70,7 @@ class TestVerboseSubprocessErrors:
                 bar
                 """
             )
-            == "".join(traceback.format_exception_only(excinfo.value))
+            == "".join(traceback.format_exception_only(None, value=excinfo.value))
         )
 
     def test_capture_neither(self) -> None:
@@ -83,5 +83,5 @@ class TestVerboseSubprocessErrors:
                 subprocess.CalledProcessError: Command '['test']' returned non-zero exit status 1.
                 """
             )
-            == "".join(traceback.format_exception_only(excinfo.value))
+            == "".join(traceback.format_exception_only(None, value=excinfo.value))
         )
