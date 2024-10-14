@@ -69,7 +69,8 @@ class Test(ABC):
         self.config = self.config.with_api(self.determine_api_level_for_config())
 
     @abstractmethod
-    def determine_api_level_for_config(self) -> int: ...
+    def determine_api_level_for_config(self) -> int:
+        ...
 
     def get_test_config(self) -> TestConfig:
         return TestConfig.from_test_dir(self.test_dir)
