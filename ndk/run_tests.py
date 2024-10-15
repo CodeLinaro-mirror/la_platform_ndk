@@ -23,11 +23,10 @@ import datetime
 import logging
 import shutil
 import site
-import subprocess
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import ndk.ansi
@@ -39,9 +38,9 @@ import ndk.test.builder
 import ndk.test.buildtest.case
 import ndk.test.ui
 import ndk.ui
-from ndk.test.devices import Device, DeviceFleet, find_devices
+from ndk.test.devices import DeviceFleet, find_devices
 from ndk.test.devicetest.case import TestCase
-from ndk.test.devicetest.testgroup import TestGroup
+from ndk.test.devicetest.devicepreparer import DevicePreparer
 from ndk.test.devicetest.testplan import TestPlan
 from ndk.test.devicetest.testplanrunner import TestPlanRunner
 from ndk.test.filters import TestFilter
@@ -49,7 +48,7 @@ from ndk.test.printers import StdoutPrinter
 from ndk.test.result import ResultTranslations
 from ndk.test.spec import BuildConfiguration, TestSpec
 from ndk.timer import Timer
-from ndk.workqueue import Worker, WorkQueue
+from ndk.workqueue import WorkQueue
 
 from .pythonenv import ensure_python_environment
 
@@ -57,91 +56,6 @@ from .pythonenv import ensure_python_environment
 def logger() -> logging.Logger:
     """Returns the module logger."""
     return logging.getLogger(__name__)
-
-
-def clear_test_directory(_worker: Worker, device: Device) -> None:
-    print(f"Clearing test directory on {device}")
-    cmd = ["rm", "-r", str(ndk.paths.DEVICE_TEST_BASE_DIR)]
-    logger().info('%s: shell_nocheck "%s"', device.name, cmd)
-    device.shell_nocheck(cmd)
-
-
-def clear_test_directories(workqueue: WorkQueue, fleet: DeviceFleet) -> None:
-    for group in fleet.get_unique_device_groups():
-        for device in group.devices:
-            workqueue.add_task(clear_test_directory, device)
-
-    while not workqueue.finished():
-        workqueue.get_result()
-
-
-def adb_has_feature(feature: str) -> bool:
-    cmd = ["adb", "host-features"]
-    logger().info('check_output "%s"', " ".join(cmd))
-    output = subprocess.check_output(cmd).decode("utf-8")
-    features_line = output.splitlines()[-1]
-    features = features_line.split(",")
-    return feature in features
-
-
-def push_tests_to_device(
-    worker: Worker,
-    test_group: TestGroup,
-    dest_dir: PurePosixPath,
-    device: Device,
-    use_sync: bool,
-) -> None:
-    """Pushes a directory to the given device.
-
-    Creates the parent directory on the device if needed.
-
-    Args:
-        worker: The worker performing the task.
-        test_group: The group of tests to push.
-        dest_dir: The destination directory on the device. Note that when
-                  pushing a directory, dest_dir will be the parent directory,
-                  not the destination path.
-        device: The device to push to.
-        use_sync: True if `adb push --sync` is supported.
-    """
-    worker.status = f"Pushing {test_group.build_config} tests to {device}."
-    logger().info("%s: mkdir %s", device.name, dest_dir)
-    device.shell_nocheck(["mkdir", str(dest_dir)])
-    logger().info(
-        "%s: push%s %s %s",
-        device.name,
-        " --sync" if use_sync else "",
-        test_group.host_path,
-        dest_dir,
-    )
-    device.push(str(test_group.host_path), str(dest_dir), sync=use_sync)
-    # Tests that were built and bundled on Windows but pushed from Linux or macOS will
-    # not have execute permission by default. Since we don't know where the tests came
-    # from, chmod all the tests regardless.
-    device.shell(["chmod", "-R", "777", str(dest_dir)])
-
-
-def push_tests_to_devices(
-    workqueue: WorkQueue,
-    test_plan: TestPlan,
-    fleet: DeviceFleet,
-    use_sync: bool,
-) -> None:
-    dest_dir = ndk.paths.DEVICE_TEST_BASE_DIR
-    for test_group in test_plan.iter_test_groups():
-        for group in fleet.get_unique_device_groups():
-            if group.can_run_build_config(test_group.build_config):
-                for device in group.devices:
-                    workqueue.add_task(
-                        push_tests_to_device,
-                        test_group,
-                        dest_dir,
-                        device,
-                        use_sync,
-                    )
-
-    ndk.ui.finish_workqueue_with_ui(workqueue, ndk.ui.get_work_queue_ui)
-    print("Finished pushing tests")
 
 
 def print_test_stats(test_plan: TestPlan) -> None:
@@ -482,13 +396,13 @@ def run_tests(args: argparse.Namespace) -> Results:
         for config in iter_configs_with_no_device(test_plan, fleet):
             logger().warning("No device found for %s.", config)
 
+        preparer = DevicePreparer(fleet)
         if args.clean_device:
             with results.timed("Clean device"):
-                clear_test_directories(workqueue, fleet)
+                preparer.clean(workqueue)
 
-        can_use_sync = adb_has_feature("push_sync")
         with results.timed("Push"):
-            push_tests_to_devices(workqueue, test_plan, fleet, can_use_sync)
+            preparer.push(workqueue, test_plan)
     finally:
         workqueue.terminate()
         workqueue.join()
