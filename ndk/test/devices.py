@@ -215,6 +215,7 @@ class DeviceShardingGroup(ShardingGroup[Device]):
         self.is_release = is_release
         self.is_debuggable = is_debuggable
         self.supports_mte = supports_mte
+        self.device_config = DeviceConfig(self.abis, self.version, self.supports_mte)
 
     @classmethod
     def with_first_device(cls, first_device: Device) -> DeviceShardingGroup:
@@ -255,6 +256,9 @@ class DeviceShardingGroup(ShardingGroup[Device]):
         if self.supports_mte != device.supports_mte:
             return False
         return True
+
+    def can_run_build_config(self, config: BuildConfiguration) -> bool:
+        return self.device_config.can_run_build_config(config)
 
     def __eq__(self, other: object) -> bool:
         assert isinstance(other, DeviceShardingGroup)
@@ -363,6 +367,12 @@ class DeviceFleet:
                 if group is not None:
                     groups.add(group)
         return groups
+
+    def can_run_build_config(self, config: BuildConfiguration) -> bool:
+        for device_group in self.get_unique_device_groups():
+            if device_group.can_run_build_config(config):
+                return True
+        return False
 
     def get_device_group(self, version: int, abi: Abi) -> Optional[DeviceShardingGroup]:
         """Returns the device group associated with the given API and ABI."""

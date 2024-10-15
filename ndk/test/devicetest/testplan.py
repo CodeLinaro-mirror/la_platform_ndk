@@ -15,12 +15,16 @@
 #
 import logging
 import os
-from pathlib import Path, PurePosixPath
-from typing import Dict, List
+from collections.abc import Iterator
+from pathlib import Path
 
+from ndk.paths import DEVICE_TEST_BASE_DIR
 from ndk.test.devicetest.case import BasicTestCase, TestCase
 from ndk.test.filters import TestFilter
 from ndk.test.spec import BuildConfiguration, TestSpec
+
+from .testgroup import TestGroup
+from .testrun import TestRun
 
 
 def logger() -> logging.Logger:
@@ -32,16 +36,15 @@ def enumerate_tests_for_build_cfg(
     test_dist_dir: Path,
     build_cfg_dir: Path,
     test_src_dir: Path,
-    device_base_dir: PurePosixPath,
     build_cfg: BuildConfiguration,
     test_filter: TestFilter,
-) -> List[TestCase]:
-    tests: List[TestCase] = []
+) -> TestGroup:
+    tests: list[TestCase] = []
     for per_build_system_dir in build_cfg_dir.iterdir():
         for test_dir in per_build_system_dir.iterdir():
             out_dir = test_dir / build_cfg.abi
             test_relpath = out_dir.relative_to(test_dist_dir)
-            device_dir = device_base_dir / test_relpath
+            device_dir = DEVICE_TEST_BASE_DIR / test_relpath
             for test_file in os.listdir(out_dir):
                 if test_file.endswith(".so"):
                     continue
@@ -69,7 +72,7 @@ def enumerate_tests_for_build_cfg(
                         device_dir,
                     )
                 )
-    return tests
+    return TestGroup(build_cfg, build_cfg_dir, tests)
 
 
 class ConfigFilter:
@@ -80,34 +83,55 @@ class ConfigFilter:
         return build_config.abi in self.spec.abis
 
 
-def enumerate_tests(
-    test_dir: Path,
-    test_src_dir: Path,
-    device_base_dir: PurePosixPath,
-    test_filter: TestFilter,
-    config_filter: ConfigFilter,
-) -> Dict[BuildConfiguration, List[TestCase]]:
-    tests: Dict[BuildConfiguration, List[TestCase]] = {}
-    for build_cfg_dir in test_dir.iterdir():
-        # Ignore TradeFed config files.
-        if not build_cfg_dir.is_dir():
-            continue
-        build_cfg = BuildConfiguration.from_string(build_cfg_dir.name)
-        if not config_filter.filter(build_cfg):
-            continue
+class TestPlan:
+    def __init__(self, test_spec: TestSpec, test_filter: TestFilter) -> None:
+        self.test_spec = test_spec
+        self.test_filter = test_filter
+        self.test_groups: dict[BuildConfiguration, TestGroup] = {}
 
-        if build_cfg not in tests:
-            tests[build_cfg] = []
-
-        tests[build_cfg].extend(
-            enumerate_tests_for_build_cfg(
-                test_dir,
-                build_cfg_dir,
-                test_src_dir,
-                device_base_dir,
-                build_cfg,
-                test_filter,
+    def add_tests_from_dist_dir(self, test_dist: Path, test_src: Path) -> None:
+        if self.test_groups:
+            raise NotImplementedError(
+                "Adding multiple test dist dirs is not yet implemented"
             )
-        )
 
-    return tests
+        for build_cfg_dir in test_dist.iterdir():
+            # Ignore TradeFed config files.
+            if not build_cfg_dir.is_dir():
+                continue
+            build_cfg = BuildConfiguration.from_string(build_cfg_dir.name)
+            if not self._filter_config(build_cfg):
+                continue
+
+            self.add_test_group(
+                enumerate_tests_for_build_cfg(
+                    test_dist,
+                    build_cfg_dir,
+                    test_src,
+                    build_cfg,
+                    self.test_filter,
+                )
+            )
+
+    def has_tests(self) -> bool:
+        for group in self.iter_test_groups():
+            if group.has_tests():
+                return True
+        return False
+
+    def add_test_group(self, test_group: TestGroup) -> None:
+        if test_group.build_config in self.test_groups:
+            raise KeyError(f"Duplicate test group entry for {test_group.build_config}")
+        self.test_groups[test_group.build_config] = test_group
+
+    def iter_build_configs(self) -> Iterator[BuildConfiguration]:
+        yield from self.test_groups.keys()
+
+    def iter_test_groups(self) -> Iterator[TestGroup]:
+        yield from self.test_groups.values()
+
+    def iter_test_runs(self) -> Iterator[TestRun]:
+        raise NotImplementedError
+
+    def _filter_config(self, build_config: BuildConfiguration) -> bool:
+        return build_config.abi in self.test_spec.abis

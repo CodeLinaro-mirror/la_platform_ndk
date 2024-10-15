@@ -30,7 +30,6 @@ from typing import Dict, List, Tuple
 import ndk.abis
 import ndk.archive
 import ndk.paths
-import ndk.test.devicetest.scanner
 import ndk.test.spec
 import ndk.test.suites
 import ndk.test.ui
@@ -38,6 +37,7 @@ import ndk.ui
 from ndk.test.buildtest.case import Test
 from ndk.test.buildtest.scanner import TestScanner
 from ndk.test.devices import DeviceConfig
+from ndk.test.devicetest.testplan import TestPlan
 from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.report import Report
@@ -293,28 +293,29 @@ class TestBuilder:
             Path("tests/dist"),
         )
 
-        test_groups = ndk.test.devicetest.scanner.enumerate_tests(
-            self.test_options.out_dir / "dist",
-            self.test_options.src_dir,
-            ndk.paths.DEVICE_TEST_BASE_DIR,
-            TestFilter.from_string(self.test_options.test_filter),
-            ndk.test.devicetest.scanner.ConfigFilter(self.test_spec),
+        test_plan = TestPlan(
+            self.test_spec, TestFilter.from_string(self.test_options.test_filter)
+        )
+        test_plan.add_tests_from_dist_dir(
+            self.test_options.out_dir / "dist", self.test_options.src_dir
         )
         tests_json: dict[str, list[dict[str, str | list[int]]]] = {}
-        for config, tests in test_groups.items():
+        for test_group in test_plan.iter_test_groups():
             testlist: list[dict[str, str | list[int]]] = []
-            for test in tests:
+            for test in test_group.tests:
                 testobj: dict[str, str | list[int]] = {
                     "cmd": test.cmd,
-                    "name": f"{config}.{test.build_system}.{test.name}",
+                    "name": f"{test_group.build_config}.{test.build_system}.{test.name}",
                 }
                 unsupported: list[int] = []
                 broken: list[int] = []
                 for device_version, abis in self.test_spec.devices.items():
-                    if config.abi not in abis:
+                    if test_group.build_config.abi not in abis:
                         continue
                     # Pretend device doesn't support MTE which is the safer bet.
-                    device_config = DeviceConfig([config.abi], device_version, False)
+                    device_config = DeviceConfig(
+                        [test_group.build_config.abi], device_version, False
+                    )
                     if test.check_unsupported(device_config) is not None:
                         unsupported.append(device_version)
                     else:
@@ -326,7 +327,7 @@ class TestBuilder:
                 if broken:
                     testobj["broken"] = broken
                 testlist.append(testobj)
-            tests_json[str(config)] = testlist
+            tests_json[str(test_group.build_config)] = testlist
         json_config_path = self.test_options.out_dir / "dist" / "tests.json"
         with json_config_path.open("w", encoding="utf-8") as outfile:
             json.dump(tests_json, outfile, indent=2)
