@@ -21,12 +21,10 @@ import argparse
 import collections
 import datetime
 import logging
-import random
 import shutil
 import site
 import subprocess
 import sys
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
@@ -41,30 +39,17 @@ import ndk.test.builder
 import ndk.test.buildtest.case
 import ndk.test.ui
 import ndk.ui
-from ndk.test.devices import (
-    Device,
-    DeviceConfig,
-    DeviceFleet,
-    DeviceShardingGroup,
-    find_devices,
-)
+from ndk.test.devices import Device, DeviceFleet, find_devices
 from ndk.test.devicetest.case import TestCase
 from ndk.test.devicetest.testgroup import TestGroup
 from ndk.test.devicetest.testplan import TestPlan
-from ndk.test.devicetest.testrun import TestRun
+from ndk.test.devicetest.testplanrunner import TestPlanRunner
 from ndk.test.filters import TestFilter
-from ndk.test.printers import Printer, StdoutPrinter
-from ndk.test.report import Report
-from ndk.test.result import (
-    Failure,
-    ResultTranslations,
-    Skipped,
-    TestResult,
-    UnexpectedSuccess,
-)
+from ndk.test.printers import StdoutPrinter
+from ndk.test.result import ResultTranslations
 from ndk.test.spec import BuildConfiguration, TestSpec
 from ndk.timer import Timer
-from ndk.workqueue import ShardingWorkQueue, Worker, WorkQueue
+from ndk.workqueue import Worker, WorkQueue
 
 from .pythonenv import ensure_python_environment
 
@@ -159,12 +144,6 @@ def push_tests_to_devices(
     print("Finished pushing tests")
 
 
-def run_test(worker: Worker, test: TestRun) -> TestResult:
-    device = worker.data[0]
-    worker.status = f"Running {test.name}"
-    return test.run(device)
-
-
 def print_test_stats(test_plan: TestPlan) -> None:
     test_stats: Dict[BuildConfiguration, Dict[str, List[TestCase]]] = {}
     for test_group in test_plan.iter_test_groups():
@@ -197,143 +176,6 @@ def iter_configs_with_no_device(
     for config in test_plan.iter_build_configs():
         if not fleet.can_run_build_config(config):
             yield config
-
-
-def pair_test_runs(
-    test_plan: TestPlan, report: Report[DeviceShardingGroup], fleet: DeviceFleet
-) -> List[TestRun]:
-    """Creates a TestRun object for each device/test case pairing."""
-    test_runs = []
-    for test_group in test_plan.iter_test_groups():
-        if not test_group.has_tests():
-            continue
-
-        report_skipped_tests_for_missing_devices(report, test_group, fleet)
-        for device_group in fleet.get_unique_device_groups():
-            if device_group.can_run_build_config(test_group.build_config):
-                test_runs.extend([TestRun(tc, device_group) for tc in test_group.tests])
-    return test_runs
-
-
-def report_skipped_tests_for_missing_devices(
-    report: Report[DeviceShardingGroup], test_group: TestGroup, fleet: DeviceFleet
-) -> None:
-    for group in fleet.get_missing():
-        device_config = DeviceConfig(group.abis, group.version, group.supports_mte)
-        if not device_config.can_run_build_config(test_group.build_config):
-            # These are a configuration that will never be valid, like a minSdkVersion
-            # 30 test on an API 21 device. No need to report these.
-            continue
-        for test_case in test_group.tests:
-            report.add_result(
-                test_case.build_system,
-                Skipped(TestRun(test_case, group), "No devices available"),
-            )
-
-
-def wait_for_results(
-    report: Report[DeviceShardingGroup],
-    workqueue: ShardingWorkQueue[TestResult, Device],
-    printer: Printer,
-) -> None:
-    console = ndk.ansi.get_console()
-    ui = ndk.test.ui.get_test_progress_ui(console, workqueue)
-    with ndk.ansi.disable_terminal_echo(sys.stdin):
-        with console.cursor_hide_context():
-            while not workqueue.finished():
-                results = workqueue.get_results()
-                verbose = logger().isEnabledFor(logging.INFO)
-                if verbose or any(r.failed() for r in results):
-                    ui.clear()
-                for result in results:
-                    suite = result.test.build_system
-                    report.add_result(suite, result)
-                    if verbose or result.failed():
-                        printer.print_result(result)
-                ui.draw()
-            ui.clear()
-
-
-def flake_filter(result: TestResult) -> bool:
-    if isinstance(result, UnexpectedSuccess):
-        # There are no flaky successes.
-        return False
-
-    assert isinstance(result, Failure)
-
-    # adb might return no text at all under high load.
-    if "Could not find exit status in shell output." in result.message:
-        return True
-
-    return False
-
-
-def restart_flaky_tests(
-    report: Report[DeviceShardingGroup],
-    workqueue: ShardingWorkQueue[TestResult, Device],
-) -> None:
-    """Finds and restarts any failing flaky tests."""
-    rerun_tests = report.remove_all_failing_flaky(flake_filter)
-    if rerun_tests:
-        cooldown = 10
-        logger().warning(
-            "Found %d flaky failures. Sleeping for %d seconds to let "
-            "devices recover.",
-            len(rerun_tests),
-            cooldown,
-        )
-        time.sleep(cooldown)
-
-    for flaky_report in rerun_tests:
-        logger().warning("Flaky test failure: %s", flaky_report.result)
-        group = flaky_report.result.test.device_group
-        workqueue.add_task(group, run_test, flaky_report.result.test)
-
-
-def run_and_collect_logs(worker: Worker, test_run: TestRun) -> TestResult:
-    device: Device = worker.data[0]
-    worker.status = "Clearing device log"
-    device.clear_logcat()
-    result = run_test(worker, test_run)
-    if not isinstance(result, Failure):
-        logger().warning(
-            "Failing test passed on re-run while collecting logs. This makes testing "
-            "slower. Test flake should be investigated."
-        )
-        return result
-    worker.status = "Collecting device log"
-    log = device.logcat()
-    result.message += f"\nlogcat contents:\n{log}"
-    return result
-
-
-def get_and_attach_logs_for_failing_tests(
-    fleet: DeviceFleet, report: Report[DeviceShardingGroup], printer: Printer
-) -> None:
-    failures = report.remove_all_true_failures()
-    if not failures:
-        return
-
-    # Have to use max of one worker per re-run to ensure that the logs we collect do not
-    # conflate with other tests.
-    queue: ShardingWorkQueue[TestResult, Device] = ShardingWorkQueue(
-        fleet.get_unique_device_groups(), 1
-    )
-    try:
-        for failure in failures:
-            queue.add_task(failure.user_data, run_and_collect_logs, failure.test)
-        wait_for_results(report, queue, printer)
-    finally:
-        queue.terminate()
-        queue.join()
-
-
-def str_to_bool(s: str) -> bool:
-    if s == "true":
-        return True
-    if s == "false":
-        return False
-    raise ValueError(s)
 
 
 def parse_args() -> argparse.Namespace:
@@ -651,31 +493,9 @@ def run_tests(args: argparse.Namespace) -> Results:
         workqueue.terminate()
         workqueue.join()
 
-    report = Report[DeviceShardingGroup]()
-    shard_queue: ShardingWorkQueue[TestResult, Device] = ShardingWorkQueue(
-        fleet.get_unique_device_groups(), 4
-    )
-    try:
-        # Need an input queue per device group, a single result queue, and a
-        # pool of threads per device.
-
-        # Shuffle the test runs to distribute the load more evenly. These are
-        # ordered by (build config, device, test), so most of the tests running
-        # at any given point in time are all running on the same device.
-        test_runs = pair_test_runs(test_plan, report, fleet)
-        random.shuffle(test_runs)
-        with results.timed("Run"):
-            for test_run in test_runs:
-                shard_queue.add_task(test_run.device_group, run_test, test_run)
-
-            wait_for_results(report, shard_queue, printer)
-            restart_flaky_tests(report, shard_queue)
-            wait_for_results(report, shard_queue, printer)
-    finally:
-        shard_queue.terminate()
-        shard_queue.join()
-
-    get_and_attach_logs_for_failing_tests(fleet, report, printer)
+    test_runner = TestPlanRunner(printer)
+    with results.timed("Run"):
+        report = test_runner.run(test_plan, fleet)
 
     printer.print_summary(report)
 
