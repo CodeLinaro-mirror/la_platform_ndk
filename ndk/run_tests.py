@@ -18,8 +18,6 @@
 from __future__ import absolute_import, print_function
 
 import argparse
-import collections
-import datetime
 import logging
 import shutil
 import site
@@ -38,17 +36,15 @@ import ndk.test.builder
 import ndk.test.buildtest.case
 import ndk.test.ui
 import ndk.ui
-from ndk.test.devices import DeviceFleet, find_devices
+from ndk.test.devices import DeviceFleet
 from ndk.test.devicetest.case import TestCase
-from ndk.test.devicetest.devicepreparer import DevicePreparer
 from ndk.test.devicetest.testplan import TestPlan
-from ndk.test.devicetest.testplanrunner import TestPlanRunner
+from ndk.test.devicetest.testrunner import TestRunner
 from ndk.test.filters import TestFilter
 from ndk.test.printers import StdoutPrinter
 from ndk.test.result import ResultTranslations
 from ndk.test.spec import BuildConfiguration, TestSpec
-from ndk.timer import Timer
-from ndk.workqueue import WorkQueue
+from ndk.timer import Timer, TimingReport
 
 from .pythonenv import ensure_python_environment
 
@@ -71,25 +67,6 @@ def print_test_stats(test_plan: TestPlan) -> None:
         print(f"Config {config}:")
         for build_system, tests in build_system_groups.items():
             print(f"\t{build_system}: {len(tests)} tests")
-
-
-def verify_have_all_requested_devices(fleet: DeviceFleet) -> bool:
-    missing_configs = fleet.get_missing()
-    if missing_configs:
-        logger().warning(
-            "Missing device configurations: %s",
-            ", ".join(str(c) for c in missing_configs),
-        )
-        return False
-    return True
-
-
-def iter_configs_with_no_device(
-    test_plan: TestPlan, fleet: DeviceFleet
-) -> Iterator[BuildConfiguration]:
-    for config in test_plan.iter_build_configs():
-        if not fleet.can_run_build_config(config):
-            yield config
 
 
 def parse_args() -> argparse.Namespace:
@@ -230,7 +207,7 @@ class Results:
     def __init__(self) -> None:
         self.success: Optional[bool] = None
         self.failure_message: Optional[str] = None
-        self.times: Dict[str, datetime.timedelta] = collections.OrderedDict()
+        self.timing_report = TimingReport()
 
     def passed(self) -> None:
         if self.success is not None:
@@ -243,18 +220,10 @@ class Results:
         self.success = False
         self.failure_message = message
 
-    def add_timing_report(self, label: str, timer: Timer) -> None:
-        if label in self.times:
-            raise ValueError
-        assert timer.duration is not None
-        self.times[label] = timer.duration
-
     @contextmanager
     def timed(self, description: str) -> Iterator[None]:
-        timer = Timer()
-        with timer:
+        with self.timing_report.timed(description):
             yield
-        self.add_timing_report(description, timer)
 
 
 def unzip_ndk(ndk_path: Path) -> Path:
@@ -347,11 +316,12 @@ def run_tests(args: argparse.Namespace) -> Results:
         return results
 
     test_filter = TestFilter.from_string(args.filter)
-    test_plan = TestPlan(test_spec, test_filter)
-    with results.timed("Test discovery"):
-        test_plan.add_tests_from_dist_dir(test_dist_dir, args.test_src)
+    runner = TestRunner(
+        test_spec, test_filter, printer, timing_report=results.timing_report
+    )
+    runner.add_tests(test_dist_dir, args.test_src)
 
-    if not test_plan.has_tests():
+    if not runner.has_tests():
         # As long as we *built* some tests, not having anything to run isn't a
         # failure.
         if args.rebuild:
@@ -363,61 +333,12 @@ def run_tests(args: argparse.Namespace) -> Results:
         return results
 
     if args.show_test_stats:
-        print_test_stats(test_plan)
+        print_test_stats(runner.test_plan)
 
-    # For finding devices, we have a list of devices we want to run on in our
-    # config file. If we did away with this list, we could instead run every
-    # test on every compatible device, but in the event of multiple similar
-    # devices, that's a lot of duplication. The list keeps us from running
-    # tests on android-24 and android-25, which don't have meaningful
-    # differences.
-    #
-    # The list also makes sure we don't miss any devices that we expect to run
-    # on.
-    #
-    # The other thing we need to verify is that each test we find is run at
-    # least once.
-    #
-    # Get the list of all devices. Prune this by the requested device
-    # configuration. For each requested configuration that was not found, print
-    # a warning. Then compare that list of devices against all our tests and
-    # make sure each test is claimed by at least one device. For each
-    # configuration that is unclaimed, print a warning.
-    workqueue = WorkQueue()
-    try:
-        with results.timed("Device discovery"):
-            fleet = find_devices(test_spec.devices, workqueue)
-
-        have_all_devices = verify_have_all_requested_devices(fleet)
-        if args.require_all_devices and not have_all_devices:
-            results.failed("Some requested devices were not available.")
-            return results
-
-        for config in iter_configs_with_no_device(test_plan, fleet):
-            logger().warning("No device found for %s.", config)
-
-        preparer = DevicePreparer(fleet)
-        if args.clean_device:
-            with results.timed("Clean device"):
-                preparer.clean(workqueue)
-
-        with results.timed("Push"):
-            preparer.push(workqueue, test_plan)
-    finally:
-        workqueue.terminate()
-        workqueue.join()
-
-    test_runner = TestPlanRunner(printer)
-    with results.timed("Run"):
-        report = test_runner.run(test_plan, fleet)
-
-    printer.print_summary(report)
-
-    if report.successful:
-        results.passed()
+    if (error := runner.run(args.clean_device, args.require_all_devices)) is not None:
+        results.failed(error)
     else:
-        results.failed()
-
+        results.passed()
     return results
 
 
@@ -446,7 +367,7 @@ def main() -> None:
     if (message := results.failure_message) is not None:
         print(message)
 
-    for timer, duration in results.times.items():
+    for timer, duration in results.timing_report.times.items():
         print("{}: {}".format(timer, duration))
     print("Total: {}".format(total_timer.duration))
 
