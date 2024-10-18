@@ -16,7 +16,7 @@
 import logging
 import os
 from pathlib import Path, PurePosixPath
-from typing import Callable, Dict, List
+from typing import Dict, List
 
 from ndk.test.devicetest.case import BasicTestCase, TestCase
 from ndk.test.filters import TestFilter
@@ -28,51 +28,47 @@ def logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def _enumerate_basic_tests(
-    out_dir_base: Path,
+def enumerate_tests_for_build_cfg(
+    test_dist_dir: Path,
+    build_cfg_dir: Path,
     test_src_dir: Path,
     device_base_dir: PurePosixPath,
     build_cfg: BuildConfiguration,
-    build_system: str,
     test_filter: TestFilter,
 ) -> List[TestCase]:
     tests: List[TestCase] = []
-    tests_dir = out_dir_base / str(build_cfg) / build_system
-    if not tests_dir.exists():
-        return tests
-
-    for test_subdir in os.listdir(tests_dir):
-        test_dir = tests_dir / test_subdir
-        out_dir = test_dir / build_cfg.abi
-        test_relpath = out_dir.relative_to(out_dir_base)
-        device_dir = device_base_dir / test_relpath
-        for test_file in os.listdir(out_dir):
-            if test_file.endswith(".so"):
-                continue
-            if test_file.endswith(".sh"):
-                continue
-            if test_file.endswith(".a"):
-                test_path = out_dir / test_file
-                logger().error(
-                    "Found static library in app install directory. Static "
-                    "libraries should never be installed. This is a bug in "
-                    "the build system: %s",
-                    test_path,
+    for per_build_system_dir in build_cfg_dir.iterdir():
+        for test_dir in per_build_system_dir.iterdir():
+            out_dir = test_dir / build_cfg.abi
+            test_relpath = out_dir.relative_to(test_dist_dir)
+            device_dir = device_base_dir / test_relpath
+            for test_file in os.listdir(out_dir):
+                if test_file.endswith(".so"):
+                    continue
+                if test_file.endswith(".sh"):
+                    continue
+                if test_file.endswith(".a"):
+                    test_path = out_dir / test_file
+                    logger().error(
+                        "Found static library in app install directory. Static "
+                        "libraries should never be installed. This is a bug in "
+                        "the build system: %s",
+                        test_path,
+                    )
+                    continue
+                name = ".".join([test_dir.name, test_file])
+                if not test_filter.filter(name):
+                    continue
+                tests.append(
+                    BasicTestCase(
+                        test_dir.name,
+                        test_file,
+                        test_src_dir,
+                        build_cfg,
+                        per_build_system_dir.name,
+                        device_dir,
+                    )
                 )
-                continue
-            name = ".".join([test_subdir, test_file])
-            if not test_filter.filter(name):
-                continue
-            tests.append(
-                BasicTestCase(
-                    test_subdir,
-                    test_file,
-                    test_src_dir,
-                    build_cfg,
-                    build_system,
-                    device_dir,
-                )
-            )
     return tests
 
 
@@ -92,48 +88,26 @@ def enumerate_tests(
     config_filter: ConfigFilter,
 ) -> Dict[BuildConfiguration, List[TestCase]]:
     tests: Dict[BuildConfiguration, List[TestCase]] = {}
-
-    # The tests directory has a directory for each type of test. For example:
-    #
-    #  * build.sh
-    #  * cmake
-    #  * ndk-build
-    #  * test.py
-    #
-    # We need to handle some of these differently. The test.py and build.sh
-    # type tests are build only, so we don't need to run them.
-    test_subdir_class_map: Dict[
-        str,
-        Callable[
-            [Path, Path, PurePosixPath, BuildConfiguration, str, TestFilter],
-            List[TestCase],
-        ],
-    ] = {
-        "cmake": _enumerate_basic_tests,
-        "ndk-build": _enumerate_basic_tests,
-    }
-
-    for build_cfg_str in os.listdir(test_dir):
+    for build_cfg_dir in test_dir.iterdir():
         # Ignore TradeFed config files.
-        if not (test_dir / build_cfg_str).is_dir():
+        if not build_cfg_dir.is_dir():
             continue
-        build_cfg = BuildConfiguration.from_string(build_cfg_str)
+        build_cfg = BuildConfiguration.from_string(build_cfg_dir.name)
         if not config_filter.filter(build_cfg):
             continue
 
         if build_cfg not in tests:
             tests[build_cfg] = []
 
-        for test_type, scan_for_tests in test_subdir_class_map.items():
-            tests[build_cfg].extend(
-                scan_for_tests(
-                    test_dir,
-                    test_src_dir,
-                    device_base_dir,
-                    build_cfg,
-                    test_type,
-                    test_filter,
-                )
+        tests[build_cfg].extend(
+            enumerate_tests_for_build_cfg(
+                test_dir,
+                build_cfg_dir,
+                test_src_dir,
+                device_base_dir,
+                build_cfg,
+                test_filter,
             )
+        )
 
     return tests
