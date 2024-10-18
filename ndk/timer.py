@@ -16,6 +16,8 @@
 """Timer APIs."""
 import datetime
 import timeit
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import TracebackType
 from typing import Optional, Type
 
@@ -61,3 +63,21 @@ class Timer:
         _traceback: Optional[TracebackType],
     ) -> None:
         self.finish()
+
+
+class TimingReport:
+    def __init__(self) -> None:
+        self.times: dict[str, datetime.timedelta] = {}
+
+    def add_timing_report(self, label: str, timer: Timer) -> None:
+        if label in self.times:
+            raise ValueError(f"Duplicate timing report for {label}")
+        assert timer.duration is not None
+        self.times[label] = timer.duration
+
+    @contextmanager
+    def timed(self, description: str) -> Iterator[None]:
+        timer = Timer()
+        with timer:
+            yield
+        self.add_timing_report(description, timer)

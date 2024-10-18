@@ -18,19 +18,14 @@
 from __future__ import absolute_import, print_function
 
 import argparse
-import collections
-import datetime
 import logging
-import random
 import shutil
 import site
-import subprocess
 import sys
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path, PurePosixPath
-from typing import Dict, Iterable, List, Mapping, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
 import ndk.ansi
 import ndk.archive
@@ -41,34 +36,17 @@ import ndk.test.builder
 import ndk.test.buildtest.case
 import ndk.test.ui
 import ndk.ui
-from ndk.test.devices import (
-    Device,
-    DeviceConfig,
-    DeviceFleet,
-    DeviceShardingGroup,
-    find_devices,
-)
+from ndk.test.devices import DeviceFleet
 from ndk.test.devicetest.case import TestCase
-from ndk.test.devicetest.scanner import ConfigFilter, enumerate_tests
+from ndk.test.devicetest.testplan import TestPlan
+from ndk.test.devicetest.testrunner import TestRunner
 from ndk.test.filters import TestFilter
-from ndk.test.printers import Printer, StdoutPrinter
-from ndk.test.report import Report
-from ndk.test.result import (
-    ExpectedFailure,
-    Failure,
-    ResultTranslations,
-    Skipped,
-    Success,
-    TestResult,
-    UnexpectedSuccess,
-)
+from ndk.test.printers import StdoutPrinter
+from ndk.test.result import ResultTranslations
 from ndk.test.spec import BuildConfiguration, TestSpec
-from ndk.timer import Timer
-from ndk.workqueue import ShardingWorkQueue, Worker, WorkQueue
+from ndk.timer import Timer, TimingReport
 
 from .pythonenv import ensure_python_environment
-
-AdbResult = tuple[int, str, str, str]
 
 
 def logger() -> logging.Logger:
@@ -76,337 +54,19 @@ def logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-class TestRun:
-    """A test case mapped to the device group it will run on."""
-
-    def __init__(self, test_case: TestCase, device_group: DeviceShardingGroup) -> None:
-        self.test_case = test_case
-        self.device_group = device_group
-
-    @property
-    def name(self) -> str:
-        return self.test_case.name
-
-    @property
-    def build_system(self) -> str:
-        return self.test_case.build_system
-
-    @property
-    def config(self) -> BuildConfiguration:
-        return self.test_case.config
-
-    def make_result(self, adb_result: AdbResult, device: Device) -> TestResult:
-        status, out, _, cmd = adb_result
-        result: TestResult
-        if status == 0:
-            result = Success(self)
-        else:
-            out = "\n".join([str(device), out])
-            result = Failure(self, out, cmd, self.device_group)
-        return self.fixup_xfail(result, device)
-
-    def fixup_xfail(self, result: TestResult, device: Device) -> TestResult:
-        config, bug = self.test_case.check_broken(device.config())
-        if config is not None:
-            assert bug is not None
-            if result.failed():
-                assert isinstance(result, Failure)
-                return ExpectedFailure(self, result.message, config, bug)
-            if result.passed():
-                return UnexpectedSuccess(self, config, bug)
-            raise ValueError("Test result must have either failed or passed.")
-        return result
-
-    def run(self, device: Device) -> TestResult:
-        config = self.test_case.check_unsupported(device.config())
-        if config is not None:
-            return Skipped(self, f"test unsupported for {config}")
-        return self.make_result(self.test_case.run(device), device)
-
-    def __str__(self) -> str:
-        return f"{self.name} [{self.config} running on API {self.device_group.version}]"
-
-
-def clear_test_directory(_worker: Worker, device: Device) -> None:
-    print(f"Clearing test directory on {device}")
-    cmd = ["rm", "-r", str(ndk.paths.DEVICE_TEST_BASE_DIR)]
-    logger().info('%s: shell_nocheck "%s"', device.name, cmd)
-    device.shell_nocheck(cmd)
-
-
-def clear_test_directories(workqueue: WorkQueue, fleet: DeviceFleet) -> None:
-    for group in fleet.get_unique_device_groups():
-        for device in group.devices:
-            workqueue.add_task(clear_test_directory, device)
-
-    while not workqueue.finished():
-        workqueue.get_result()
-
-
-def adb_has_feature(feature: str) -> bool:
-    cmd = ["adb", "host-features"]
-    logger().info('check_output "%s"', " ".join(cmd))
-    output = subprocess.check_output(cmd).decode("utf-8")
-    features_line = output.splitlines()[-1]
-    features = features_line.split(",")
-    return feature in features
-
-
-def push_tests_to_device(
-    worker: Worker,
-    src_dir: Path,
-    dest_dir: PurePosixPath,
-    config: BuildConfiguration,
-    device: Device,
-    use_sync: bool,
-) -> None:
-    """Pushes a directory to the given device.
-
-    Creates the parent directory on the device if needed.
-
-    Args:
-        worker: The worker performing the task.
-        src_dir: The directory to push.
-        dest_dir: The destination directory on the device. Note that when
-                  pushing a directory, dest_dir will be the parent directory,
-                  not the destination path.
-        config: The build configuration for the tests being pushed.
-        device: The device to push to.
-        use_sync: True if `adb push --sync` is supported.
-    """
-    worker.status = f"Pushing {config} tests to {device}."
-    logger().info("%s: mkdir %s", device.name, dest_dir)
-    device.shell_nocheck(["mkdir", str(dest_dir)])
-    logger().info(
-        "%s: push%s %s %s",
-        device.name,
-        " --sync" if use_sync else "",
-        src_dir,
-        dest_dir,
-    )
-    device.push(str(src_dir), str(dest_dir), sync=use_sync)
-    # Tests that were built and bundled on Windows but pushed from Linux or macOS will
-    # not have execute permission by default. Since we don't know where the tests came
-    # from, chmod all the tests regardless.
-    device.shell(["chmod", "-R", "777", str(dest_dir)])
-
-
-def push_tests_to_devices(
-    workqueue: WorkQueue,
-    test_dir: Path,
-    groups_for_config: Mapping[BuildConfiguration, Iterable[DeviceShardingGroup]],
-    use_sync: bool,
-) -> None:
-    dest_dir = ndk.paths.DEVICE_TEST_BASE_DIR
-    for config, groups in groups_for_config.items():
-        src_dir = test_dir / str(config)
-        for group in groups:
-            for device in group.devices:
-                workqueue.add_task(
-                    push_tests_to_device, src_dir, dest_dir, config, device, use_sync
-                )
-
-    ndk.ui.finish_workqueue_with_ui(workqueue, ndk.ui.get_work_queue_ui)
-    print("Finished pushing tests")
-
-
-def run_test(worker: Worker, test: TestRun) -> TestResult:
-    device = worker.data[0]
-    worker.status = f"Running {test.name}"
-    return test.run(device)
-
-
-def print_test_stats(
-    test_groups: Mapping[BuildConfiguration, Iterable[TestCase]]
-) -> None:
+def print_test_stats(test_plan: TestPlan) -> None:
     test_stats: Dict[BuildConfiguration, Dict[str, List[TestCase]]] = {}
-    for config, tests in test_groups.items():
-        test_stats[config] = {}
-        for test in tests:
-            if test.build_system not in test_stats[config]:
-                test_stats[config][test.build_system] = []
-            test_stats[config][test.build_system].append(test)
+    for test_group in test_plan.iter_test_groups():
+        test_stats[test_group.build_config] = {}
+        for test in test_group.tests:
+            if test.build_system not in test_stats[test_group.build_config]:
+                test_stats[test_group.build_config][test.build_system] = []
+            test_stats[test_group.build_config][test.build_system].append(test)
 
     for config, build_system_groups in test_stats.items():
         print(f"Config {config}:")
         for build_system, tests in build_system_groups.items():
             print(f"\t{build_system}: {len(tests)} tests")
-
-
-def verify_have_all_requested_devices(fleet: DeviceFleet) -> bool:
-    missing_configs = fleet.get_missing()
-    if missing_configs:
-        logger().warning(
-            "Missing device configurations: %s",
-            ", ".join(str(c) for c in missing_configs),
-        )
-        return False
-    return True
-
-
-def find_configs_with_no_device(
-    groups_for_config: Mapping[BuildConfiguration, Iterable[DeviceShardingGroup]]
-) -> List[BuildConfiguration]:
-    return [c for c, gs in groups_for_config.items() if not gs]
-
-
-def match_configs_to_device_groups(
-    fleet: DeviceFleet, configs: Iterable[BuildConfiguration]
-) -> Dict[BuildConfiguration, List[DeviceShardingGroup]]:
-    groups_for_config: Dict[BuildConfiguration, List[DeviceShardingGroup]] = {
-        config: [] for config in configs
-    }
-    for config in configs:
-        for group in fleet.get_unique_device_groups():
-            # All devices in the group are identical.
-            device = group.devices[0]
-            if not device.can_run_build_config(config):
-                continue
-            groups_for_config[config].append(group)
-
-    return groups_for_config
-
-
-def pair_test_runs(
-    test_groups: Mapping[BuildConfiguration, Iterable[TestCase]],
-    groups_for_config: Mapping[BuildConfiguration, Iterable[DeviceShardingGroup]],
-    report: Report[DeviceShardingGroup],
-    fleet: DeviceFleet,
-) -> List[TestRun]:
-    """Creates a TestRun object for each device/test case pairing."""
-    test_runs = []
-    for config, test_cases in test_groups.items():
-        if not test_cases:
-            continue
-
-        report_skipped_tests_for_missing_devices(report, config, fleet, test_cases)
-        for group in groups_for_config[config]:
-            test_runs.extend([TestRun(tc, group) for tc in test_cases])
-    return test_runs
-
-
-def report_skipped_tests_for_missing_devices(
-    report: Report[DeviceShardingGroup],
-    build_config: BuildConfiguration,
-    fleet: DeviceFleet,
-    test_cases: Iterable[TestCase],
-) -> None:
-    for group in fleet.get_missing():
-        device_config = DeviceConfig(group.abis, group.version, group.supports_mte)
-        if not device_config.can_run_build_config(build_config):
-            # These are a configuration that will never be valid, like a minSdkVersion
-            # 30 test on an API 21 device. No need to report these.
-            continue
-        for test_case in test_cases:
-            report.add_result(
-                test_case.build_system,
-                Skipped(TestRun(test_case, group), "No devices available"),
-            )
-
-
-def wait_for_results(
-    report: Report[DeviceShardingGroup],
-    workqueue: ShardingWorkQueue[TestResult, Device],
-    printer: Printer,
-) -> None:
-    console = ndk.ansi.get_console()
-    ui = ndk.test.ui.get_test_progress_ui(console, workqueue)
-    with ndk.ansi.disable_terminal_echo(sys.stdin):
-        with console.cursor_hide_context():
-            while not workqueue.finished():
-                results = workqueue.get_results()
-                verbose = logger().isEnabledFor(logging.INFO)
-                if verbose or any(r.failed() for r in results):
-                    ui.clear()
-                for result in results:
-                    suite = result.test.build_system
-                    report.add_result(suite, result)
-                    if verbose or result.failed():
-                        printer.print_result(result)
-                ui.draw()
-            ui.clear()
-
-
-def flake_filter(result: TestResult) -> bool:
-    if isinstance(result, UnexpectedSuccess):
-        # There are no flaky successes.
-        return False
-
-    assert isinstance(result, Failure)
-
-    # adb might return no text at all under high load.
-    if "Could not find exit status in shell output." in result.message:
-        return True
-
-    return False
-
-
-def restart_flaky_tests(
-    report: Report[DeviceShardingGroup],
-    workqueue: ShardingWorkQueue[TestResult, Device],
-) -> None:
-    """Finds and restarts any failing flaky tests."""
-    rerun_tests = report.remove_all_failing_flaky(flake_filter)
-    if rerun_tests:
-        cooldown = 10
-        logger().warning(
-            "Found %d flaky failures. Sleeping for %d seconds to let "
-            "devices recover.",
-            len(rerun_tests),
-            cooldown,
-        )
-        time.sleep(cooldown)
-
-    for flaky_report in rerun_tests:
-        logger().warning("Flaky test failure: %s", flaky_report.result)
-        group = flaky_report.result.test.device_group
-        workqueue.add_task(group, run_test, flaky_report.result.test)
-
-
-def run_and_collect_logs(worker: Worker, test_run: TestRun) -> TestResult:
-    device: Device = worker.data[0]
-    worker.status = "Clearing device log"
-    device.clear_logcat()
-    result = run_test(worker, test_run)
-    if not isinstance(result, Failure):
-        logger().warning(
-            "Failing test passed on re-run while collecting logs. This makes testing "
-            "slower. Test flake should be investigated."
-        )
-        return result
-    worker.status = "Collecting device log"
-    log = device.logcat()
-    result.message += f"\nlogcat contents:\n{log}"
-    return result
-
-
-def get_and_attach_logs_for_failing_tests(
-    fleet: DeviceFleet, report: Report[DeviceShardingGroup], printer: Printer
-) -> None:
-    failures = report.remove_all_true_failures()
-    if not failures:
-        return
-
-    # Have to use max of one worker per re-run to ensure that the logs we collect do not
-    # conflate with other tests.
-    queue: ShardingWorkQueue[TestResult, Device] = ShardingWorkQueue(
-        fleet.get_unique_device_groups(), 1
-    )
-    try:
-        for failure in failures:
-            queue.add_task(failure.user_data, run_and_collect_logs, failure.test)
-        wait_for_results(report, queue, printer)
-    finally:
-        queue.terminate()
-        queue.join()
-
-
-def str_to_bool(s: str) -> bool:
-    if s == "true":
-        return True
-    if s == "false":
-        return False
-    raise ValueError(s)
 
 
 def parse_args() -> argparse.Namespace:
@@ -547,7 +207,7 @@ class Results:
     def __init__(self) -> None:
         self.success: Optional[bool] = None
         self.failure_message: Optional[str] = None
-        self.times: Dict[str, datetime.timedelta] = collections.OrderedDict()
+        self.timing_report = TimingReport()
 
     def passed(self) -> None:
         if self.success is not None:
@@ -560,18 +220,10 @@ class Results:
         self.success = False
         self.failure_message = message
 
-    def add_timing_report(self, label: str, timer: Timer) -> None:
-        if label in self.times:
-            raise ValueError
-        assert timer.duration is not None
-        self.times[label] = timer.duration
-
     @contextmanager
     def timed(self, description: str) -> Iterator[None]:
-        timer = Timer()
-        with timer:
+        with self.timing_report.timed(description):
             yield
-        self.add_timing_report(description, timer)
 
 
 def unzip_ndk(ndk_path: Path) -> Path:
@@ -664,18 +316,12 @@ def run_tests(args: argparse.Namespace) -> Results:
         return results
 
     test_filter = TestFilter.from_string(args.filter)
-    # dict of {BuildConfiguration: [Test]}
-    config_filter = ConfigFilter(test_spec)
-    with results.timed("Test discovery"):
-        test_groups = enumerate_tests(
-            test_dist_dir,
-            args.test_src,
-            ndk.paths.DEVICE_TEST_BASE_DIR,
-            test_filter,
-            config_filter,
-        )
+    runner = TestRunner(
+        test_spec, test_filter, printer, timing_report=results.timing_report
+    )
+    runner.add_tests(test_dist_dir, args.test_src)
 
-    if sum(len(tests) for tests in test_groups.values()) == 0:
+    if not runner.has_tests():
         # As long as we *built* some tests, not having anything to run isn't a
         # failure.
         if args.rebuild:
@@ -687,86 +333,12 @@ def run_tests(args: argparse.Namespace) -> Results:
         return results
 
     if args.show_test_stats:
-        print_test_stats(test_groups)
+        print_test_stats(runner.test_plan)
 
-    # For finding devices, we have a list of devices we want to run on in our
-    # config file. If we did away with this list, we could instead run every
-    # test on every compatible device, but in the event of multiple similar
-    # devices, that's a lot of duplication. The list keeps us from running
-    # tests on android-24 and android-25, which don't have meaningful
-    # differences.
-    #
-    # The list also makes sure we don't miss any devices that we expect to run
-    # on.
-    #
-    # The other thing we need to verify is that each test we find is run at
-    # least once.
-    #
-    # Get the list of all devices. Prune this by the requested device
-    # configuration. For each requested configuration that was not found, print
-    # a warning. Then compare that list of devices against all our tests and
-    # make sure each test is claimed by at least one device. For each
-    # configuration that is unclaimed, print a warning.
-    workqueue = WorkQueue()
-    try:
-        with results.timed("Device discovery"):
-            fleet = find_devices(test_spec.devices, workqueue)
-
-        have_all_devices = verify_have_all_requested_devices(fleet)
-        if args.require_all_devices and not have_all_devices:
-            results.failed("Some requested devices were not available.")
-            return results
-
-        groups_for_config = match_configs_to_device_groups(fleet, test_groups.keys())
-        for config in find_configs_with_no_device(groups_for_config):
-            logger().warning("No device found for %s.", config)
-
-        if args.clean_device:
-            with results.timed("Clean device"):
-                clear_test_directories(workqueue, fleet)
-
-        can_use_sync = adb_has_feature("push_sync")
-        with results.timed("Push"):
-            push_tests_to_devices(
-                workqueue, test_dist_dir, groups_for_config, can_use_sync
-            )
-    finally:
-        workqueue.terminate()
-        workqueue.join()
-
-    report = Report[DeviceShardingGroup]()
-    shard_queue: ShardingWorkQueue[TestResult, Device] = ShardingWorkQueue(
-        fleet.get_unique_device_groups(), 4
-    )
-    try:
-        # Need an input queue per device group, a single result queue, and a
-        # pool of threads per device.
-
-        # Shuffle the test runs to distribute the load more evenly. These are
-        # ordered by (build config, device, test), so most of the tests running
-        # at any given point in time are all running on the same device.
-        test_runs = pair_test_runs(test_groups, groups_for_config, report, fleet)
-        random.shuffle(test_runs)
-        with results.timed("Run"):
-            for test_run in test_runs:
-                shard_queue.add_task(test_run.device_group, run_test, test_run)
-
-            wait_for_results(report, shard_queue, printer)
-            restart_flaky_tests(report, shard_queue)
-            wait_for_results(report, shard_queue, printer)
-    finally:
-        shard_queue.terminate()
-        shard_queue.join()
-
-    get_and_attach_logs_for_failing_tests(fleet, report, printer)
-
-    printer.print_summary(report)
-
-    if report.successful:
-        results.passed()
+    if (error := runner.run(args.clean_device, args.require_all_devices)) is not None:
+        results.failed(error)
     else:
-        results.failed()
-
+        results.passed()
     return results
 
 
@@ -795,7 +367,7 @@ def main() -> None:
     if (message := results.failure_message) is not None:
         print(message)
 
-    for timer, duration in results.times.items():
+    for timer, duration in results.timing_report.times.items():
         print("{}: {}".format(timer, duration))
     print("Total: {}".format(total_timer.duration))
 
