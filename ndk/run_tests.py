@@ -36,7 +36,6 @@ import ndk.test.builder
 import ndk.test.buildtest.case
 import ndk.test.ui
 import ndk.ui
-from ndk.test.devices import DeviceFleet
 from ndk.test.devicetest.case import TestCase
 from ndk.test.devicetest.testplan import TestPlan
 from ndk.test.devicetest.testrunner import TestRunner
