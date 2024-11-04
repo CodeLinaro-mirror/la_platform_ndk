@@ -41,15 +41,17 @@ directly, see the [build system maintainers guide].
   the NDK aidl backend, you will need to pass the aidl include path when
   building. See the [aidl backend] docs for more information.
 - [Issue 2058]: [Weak API references] now work for libc APIs. This was enabled
-  by removing the explicit `#if __ANDROID_API__ >= ...` guards that previously
-  wrapped declarations in libc headers.
+  by conditionally removing the `#if __ANDROID_API__ >= ...` guards that
+  previously wrapped declarations in libc headers when weak API references are
+  used. When weak API references are not used (the default behavior), the
+  declarations will still be hidden by the preprocessor.
 
-  If your project contains polyfills for any of those APIs, this change may
-  break your build due to the conflicting declarations. The simplest fix is to
-  rename your polyfill to not collide with libc. For example, rename
-  `conflicting_api` to `conflicting_api_fallback` and call that instead. Use
-  `#define conflicting_api() conflicting_api_fallback()` if you want to avoid
-  rewriting callsites.
+  If your project contains polyfills for any of those APIs **and uses weak API
+  references**, this change may break your build due to the conflicting
+  declarations. The simplest fix is to rename your polyfill to not collide with
+  libc. For example, rename `conflicting_api` to `conflicting_api_fallback` and
+  call that instead. Use `#define conflicting_api() conflicting_api_fallback()`
+  if you want to avoid rewriting callsites.
 
   Please open a bug if you run into issues with existing polyfills. We may be
   able to add the polyfill directly to the NDK.
