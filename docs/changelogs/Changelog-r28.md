@@ -26,6 +26,7 @@ directly, see the [build system maintainers guide].
     libc++_shared.so and any binaries that link libc++_static.a much larger
     before they are stripped. The Android Gradle Plugin will strip binaries when
     creating APKs, so this should not affect production apps.
+  - [Issue 2046]: libclang and libclang-cpp are now supported.
 - `PAGE_SIZE` is no longer defined by default for arm64-v8a or x86_64. To
   re-enable, set `APP_SUPPORT_FLEXIBLE_PAGE_SIZES` (ndk-build) or
   `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES` (CMake) to false. See [Support 16 KB
@@ -58,6 +59,7 @@ directly, see the [build system maintainers guide].
 
 [aidl backend]: https://source.android.com/docs/core/architecture/aidl/aidl-backends#core-build-system
 [Issue 1307]: https://github.com/android/ndk/issues/1307
+[Issue 2046]: https://github.com/android/ndk/issues/2046
 [Issue 2058]: https://github.com/android/ndk/issues/2058
 [Weak API references]: https://developer.android.com/ndk/guides/using-newer-apis
 
