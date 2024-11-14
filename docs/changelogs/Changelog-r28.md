@@ -53,7 +53,7 @@ directly, see the [build system maintainers guide].
 [aidl backend]: https://source.android.com/docs/core/architecture/aidl/aidl-backends#core-build-system
 [Issue 1307]: https://github.com/android/ndk/issues/1307
 [Issue 2058]: https://github.com/android/ndk/issues/2058
-[Weak API references]: http://go/android-dev/ndk/guides/using-newer-apis
+[Weak API references]: https://developer.android.com/ndk/guides/using-newer-apis
 
 [Support 16 KB page sizes]:
   https://developer.android.com/guide/practices/page-sizes
