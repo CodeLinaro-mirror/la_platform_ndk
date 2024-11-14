@@ -588,8 +588,6 @@ class Clang(ndk.builds.Module):
         # They don't exist on Windows though.
         if self.host is not Host.Windows64:
             lib_ext = ".dylib" if self.host is Host.Darwin else ".so"
-            (install_path / "lib" / "libclang").with_suffix(lib_ext).unlink()
-            (install_path / "lib" / "libclang-cpp").with_suffix(lib_ext).unlink()
             (install_path / "lib" / "libLLVM").with_suffix(lib_ext).unlink()
             (install_path / "lib" / "libLTO").with_suffix(lib_ext).unlink()
             if self.host is Host.Linux or self.host is Host.Darwin:
