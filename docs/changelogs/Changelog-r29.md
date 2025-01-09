@@ -15,3 +15,6 @@ directly, see the [build system maintainers guide].
 ## Announcements
 
 ## Changes
+
+- Updated LLVM to clang-r547379. See `clang_source_info.md` in the toolchain
+  directory for version information.
