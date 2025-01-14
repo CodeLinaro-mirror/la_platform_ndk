@@ -56,11 +56,15 @@ directly, see the [build system maintainers guide].
 
   Please open a bug if you run into issues with existing polyfills. We may be
   able to add the polyfill directly to the NDK.
+- [Issue 2100]: Raised minimum required CMake version of the NDK's toolchain
+  file from 3.6.0 to 3.10.0 to address warnings from new versions of CMake about
+  upcoming loss of compatibility with versions older than 3.10.
 
 [aidl backend]: https://source.android.com/docs/core/architecture/aidl/aidl-backends#core-build-system
 [Issue 1307]: https://github.com/android/ndk/issues/1307
 [Issue 2046]: https://github.com/android/ndk/issues/2046
 [Issue 2058]: https://github.com/android/ndk/issues/2058
+[Issue 2100]: https://github.com/android/ndk/issues/2100
 [Weak API references]: https://developer.android.com/ndk/guides/using-newer-apis
 
 [Support 16 KB page sizes]:
