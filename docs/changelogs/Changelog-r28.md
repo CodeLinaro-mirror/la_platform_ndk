@@ -19,7 +19,7 @@ directly, see the [build system maintainers guide].
 
 ## Changes
 
-- Updated LLVM to clang-r530567b. See `clang_source_info.md` in the toolchain
+- Updated LLVM to clang-r530567c. See `clang_source_info.md` in the toolchain
   directory for version information.
   - Runtime libraries for non-Android have been removed reduce disk usage.
   - libc++ now includes debug info to aid debugging. This may make
