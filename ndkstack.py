@@ -28,6 +28,8 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from abc import ABC, abstractmethod
+from functools import cached_property
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
@@ -48,6 +50,90 @@ class TmpDir:
         if not self._tmp_dir:
             self._tmp_dir = Path(tempfile.mkdtemp())
         return self._tmp_dir
+
+
+class BuildIdReader(ABC):
+    @abstractmethod
+    def build_id(self, path: Path) -> bytes | None:
+        """Returns the build ID of the given file, or None if none was found."""
+
+
+class Readelf(BuildIdReader):
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def build_id(self, path: Path) -> bytes | None:
+        return get_build_id(self.path, path)
+
+
+class NullBuildIdReader(BuildIdReader):
+    def build_id(self, path: Path) -> bytes | None:
+        return None
+
+
+class SymbolSource(ABC):
+    """A source of debug symbols.
+
+    A symbol source may be an APK, a native-debug-symbols.zip files (the
+    artifact of debug symbols that is uploaded to Play), an ELF file, or a
+    directory containing other symbol sources.
+    """
+
+    @abstractmethod
+    def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
+        """Finds an ELF file which provides debug info for the given frame.
+
+        Args:
+            frame_info: The frame to find debug info for.
+
+        Returns:
+            The path of an ELF file which provides debug info for the given frame if one
+            is found in this symbol source. Returns None if no matching file was found.
+        """
+
+
+class ElfSymbolSource(SymbolSource):
+    """An ELF file containing debug symbols."""
+
+    def __init__(
+        self, path: Path, display_path: str, build_id_reader: BuildIdReader
+    ) -> None:
+        self.path = path
+        self.display_path = display_path
+        self.build_id_reader = build_id_reader
+
+    @cached_property
+    def build_id(self) -> bytes | None:
+        return self.build_id_reader.build_id(self.path)
+
+    def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
+        # TODO: Accept matching build IDs even if the file names don't match.
+        # This is probably the wrong order of precedence, but it's the pre-existing
+        # behavior.
+        if frame_info.elf_file is None:
+            # The trace frame named a container and an offset but not the file name. We
+            # can't find the file until that's been found by parsing the container,
+            # which will be done by the container specific SymbolSource.
+            return None
+        if self.path.name != frame_info.elf_file.name:
+            return None
+        if frame_info.build_id is not None and self.build_id is not None:
+            if self.build_id_matches(frame_info.build_id):
+                return self.path
+            return None
+        return self.path
+
+    def build_id_matches(self, build_id: bytes) -> bool:
+        """Returns True if the build ID of the ELF file matches the frame info."""
+        if self.build_id is None:
+            print(f"ERROR: Could not determine build ID for {self.path}", flush=True)
+            return False
+        if build_id != self.build_id:
+            print(f"WARNING: Mismatched build id for {self.display_path}", flush=True)
+            print(f"WARNING:   Expected {build_id.decode('utf-8')}", flush=True)
+            print(f"WARNING:   Found    {self.build_id.decode('utf-8')}", flush=True)
+            return False
+        return True
 
 
 def get_ndk_paths() -> tuple[Path, Path, str]:
@@ -263,38 +349,21 @@ class FrameInfo:
             self.build_id = None
 
     def verify_elf_file(
-        self, readelf_path: Path | None, elf_file_path: Path, display_elf_path: str
+        self, build_id_reader: BuildIdReader, elf_file_path: Path, display_elf_path: str
     ) -> bool:
         """Verify if the elf file is valid.
 
         Returns: True if the elf file exists and build id matches (if it exists).
         """
-
-        if not os.path.exists(elf_file_path):
-            return False
-        if readelf_path and self.build_id:
-            build_id = get_build_id(readelf_path, elf_file_path)
-            if build_id is None:
-                print(
-                    f"ERROR: Could not determine build ID for {elf_file_path}",
-                    flush=True,
-                )
-                return False
-            if self.build_id != build_id:
-                print(
-                    "WARNING: Mismatched build id for %s" % (display_elf_path),
-                    flush=True,
-                )
-                print(
-                    "WARNING:   Expected %s" % (self.build_id.decode("utf-8")),
-                    flush=True,
-                )
-                print("WARNING:   Found    %s" % (build_id.decode("utf-8")), flush=True)
-                return False
-        return True
+        return (
+            ElfSymbolSource(
+                elf_file_path, display_elf_path, build_id_reader
+            ).find_providing_elf_file(self)
+            is not None
+        )
 
     def get_elf_file(
-        self, symbol_dir: Path, readelf_path: Path | None, tmp_dir: TmpDir
+        self, symbol_dir: Path, build_id_reader: BuildIdReader, tmp_dir: TmpDir
     ) -> Path | None:
         """Get the path to the elf file represented by this frame.
 
@@ -309,7 +378,7 @@ class FrameInfo:
             # This matches a file format such as Base.apk!libsomething.so
             # so see if we can find libsomething.so in the symbol directory.
             elf_file_path = symbol_dir / elf_file
-            if self.verify_elf_file(readelf_path, elf_file_path, str(elf_file_path)):
+            if self.verify_elf_file(build_id_reader, elf_file_path, str(elf_file_path)):
                 return elf_file_path
 
             apk_file_path = symbol_dir / self.container_file.name
@@ -323,7 +392,7 @@ class FrameInfo:
                 )
                 display_elf_file = "%s!%s" % (apk_file_path, elf_file)
                 if not self.verify_elf_file(
-                    readelf_path, elf_file_path, display_elf_file
+                    build_id_reader, elf_file_path, display_elf_file
                 ):
                     return None
                 return elf_file_path
@@ -353,7 +422,7 @@ class FrameInfo:
                 elf_file = os.path.basename(zip_info.filename)
                 elf_file_path = symbol_dir / elf_file
                 if self.verify_elf_file(
-                    readelf_path, elf_file_path, str(elf_file_path)
+                    build_id_reader, elf_file_path, str(elf_file_path)
                 ):
                     return elf_file_path
 
@@ -362,26 +431,31 @@ class FrameInfo:
                 )
                 display_elf_path = "%s!%s" % (apk_file_path, elf_file)
                 if not self.verify_elf_file(
-                    readelf_path, elf_file_path, display_elf_path
+                    build_id_reader, elf_file_path, display_elf_path
                 ):
                     return None
                 return elf_file_path
         elf_file_path = symbol_dir / elf_file
-        if self.verify_elf_file(readelf_path, elf_file_path, str(elf_file_path)):
+        if self.verify_elf_file(build_id_reader, elf_file_path, str(elf_file_path)):
             return elf_file_path
         return None
 
 
+def get_build_id_reader(ndk_root: Path, ndk_bin: Path, host_tag: str) -> BuildIdReader:
+    if (readelf_path := find_readelf(ndk_root, ndk_bin, host_tag)) is not None:
+        return Readelf(readelf_path)
+    return NullBuildIdReader()
+
+
 def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
-    ndk_paths = get_ndk_paths()
+    ndk_root, ndk_bin, host_tag = get_ndk_paths()
     symbolize_cmd = [
-        str(find_llvm_symbolizer(*ndk_paths)),
+        str(find_llvm_symbolizer(ndk_root, ndk_bin, host_tag)),
         "--demangle",
         "--functions=linkage",
         "--inlines",
     ]
-    readelf_path = find_readelf(*ndk_paths)
-
+    build_id_reader = get_build_id_reader(ndk_root, ndk_bin, host_tag)
     symbolize_proc = None
 
     try:
@@ -424,7 +498,7 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
                 saw_frame = True
 
             try:
-                elf_file = frame_info.get_elf_file(symbol_dir, readelf_path, tmp_dir)
+                elf_file = frame_info.get_elf_file(symbol_dir, build_id_reader, tmp_dir)
             except IOError:
                 elf_file = None
 

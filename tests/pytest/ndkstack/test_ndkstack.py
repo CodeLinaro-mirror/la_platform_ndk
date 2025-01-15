@@ -194,74 +194,75 @@ class FrameTests(unittest.TestCase):
         assert frame_info.pc == b"000000000006263c"
 
 
-@patch.object(ndkstack, "get_build_id")
-@patch("os.path.exists")
-class VerifyElfFileTests(unittest.TestCase):
-    """Tests of verify_elf_file()."""
+class FakeBuildIdReader(ndkstack.BuildIdReader):
+    def __init__(self, build_id: bytes | None) -> None:
+        self._build_id = build_id
 
-    def create_frame_info(self) -> ndkstack.FrameInfo:
-        line = b"  #03 pc 00002050  /fake/libfake.so"
-        frame_info = ndkstack.FrameInfo.from_line(line)
-        assert frame_info is not None
-        return frame_info
+    def build_id(self, path: Path) -> bytes | None:
+        return self._build_id
 
-    def test_elf_file_does_not_exist(self, mock_exists: Mock, _: Mock) -> None:
-        mock_exists.return_value = False
-        frame_info = self.create_frame_info()
-        self.assertFalse(
-            frame_info.verify_elf_file(None, Path("/fake/libfake.so"), "libfake.so")
-        )
-        self.assertFalse(
-            frame_info.verify_elf_file(
-                Path("llvm-readelf"), Path("/fake/libfake.so"), "libfake.so"
-            )
-        )
 
-    def test_elf_file_build_id_matches(
-        self, mock_exists: Mock, mock_get_build_id: Mock
-    ) -> None:
-        mock_exists.return_value = True
-        frame_info = self.create_frame_info()
-        frame_info.build_id = b"MOCKED_BUILD_ID"
-        self.assertTrue(
-            frame_info.verify_elf_file(None, Path("/mocked/libfake.so"), "libfake.so")
+class TestElfSymbolSource:
+    def test_rejects_mismatched_file_names_with_no_build_id(self) -> None:
+        source = ndkstack.ElfSymbolSource(
+            Path("libs/libapp.so"),
+            "libapp.so",
+            FakeBuildIdReader(None),
         )
-        mock_get_build_id.assert_not_called()
+        frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libfake.so")
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) is None
 
-        mock_get_build_id.return_value = b"MOCKED_BUILD_ID"
-        self.assertTrue(
-            frame_info.verify_elf_file(
-                Path("llvm-readelf"), Path("/mocked/libfake.so"), "libfake.so"
-            )
+    def test_accepts_matching_file_names_with_no_build_id(self) -> None:
+        source = ndkstack.ElfSymbolSource(
+            Path("libs/libapp.so"),
+            "libapp.so",
+            FakeBuildIdReader(None),
         )
-        mock_get_build_id.assert_called_once_with(
-            Path("llvm-readelf"), Path("/mocked/libfake.so")
-        )
+        frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libapp.so")
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == Path("libs/libapp.so")
 
-    def test_elf_file_build_id_does_not_match(
-        self, mock_exists: Mock, mock_get_build_id: Mock
-    ) -> None:
-        mock_exists.return_value = True
-        mock_get_build_id.return_value = b"MOCKED_BUILD_ID"
-        frame_info = self.create_frame_info()
-        frame_info.build_id = b"DIFFERENT_BUILD_ID"
-        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
-            self.assertTrue(
-                frame_info.verify_elf_file(None, Path("/mocked/libfake.so"), "none.so")
-            )
-            self.assertFalse(
-                frame_info.verify_elf_file(
-                    Path("llvm-readelf"), Path("/mocked/libfake.so"), "display.so"
-                )
-            )
-        output = textwrap.dedent(
-            """\
-            WARNING: Mismatched build id for display.so
-            WARNING:   Expected DIFFERENT_BUILD_ID
-            WARNING:   Found    MOCKED_BUILD_ID
-        """
+    # This is probably the better behavior. If the build IDs match, those debug symbols
+    # should be used, even if the libraries were renamed somewhere along the way. This
+    # is the existing behavior though, so if we want to make that change it should be
+    # done in a follow up.
+    @pytest.mark.xfail(reason="not implemented")
+    def test_accepts_matching_build_id_with_different_file_name(self) -> None:
+        source = ndkstack.ElfSymbolSource(
+            Path("libs/libapp.so"),
+            "libapp.so",
+            FakeBuildIdReader(b"d1d420a58366bf29f1312ec826f16564"),
         )
-        self.assertEqual(output, mock_stdout.getvalue())
+        frame = ndkstack.FrameInfo.from_line(
+            b"  #03 pc 00002050  /fake/libfake.so (BuildId: d1d420a58366bf29f1312ec826f16564)"
+        )
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == Path("libs/libapp.so")
+
+    def test_rejects_mismatched_build_id_with_same_file_name(self) -> None:
+        source = ndkstack.ElfSymbolSource(
+            Path("libs/libfake.so"),
+            "libfake.so",
+            FakeBuildIdReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
+        )
+        frame = ndkstack.FrameInfo.from_line(
+            b"  #03 pc 00002050  /fake/libfake.so (BuildId: d1d420a58366bf29f1312ec826f16564)"
+        )
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) is None
+
+    def test_accepts_matching_build_id_with_same_file_name(self) -> None:
+        source = ndkstack.ElfSymbolSource(
+            Path("libs/libapp.so"),
+            "libapp.so",
+            FakeBuildIdReader(b"d1d420a58366bf29f1312ec826f16564"),
+        )
+        frame = ndkstack.FrameInfo.from_line(
+            b"  #03 pc 00002050  /fake/libapp.so (BuildId: d1d420a58366bf29f1312ec826f16564)"
+        )
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == Path("libs/libapp.so")
 
 
 class GetZipInfoFromOffsetTests(unittest.TestCase):
