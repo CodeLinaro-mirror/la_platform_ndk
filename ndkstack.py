@@ -136,6 +136,41 @@ class ElfSymbolSource(SymbolSource):
         return True
 
 
+class ApkSymbolSource(SymbolSource):
+    def __init__(
+        self, path: Path, build_id_reader: BuildIdReader, temp_dir: Path
+    ) -> None:
+        self.path = path
+        self.build_id_reader = build_id_reader
+        self.temp_dir = temp_dir
+
+    def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
+        # This matches a file format such as Base.apk!libsomething.so
+        with zipfile.ZipFile(self.path) as zip_file:
+            assert frame_info.offset is not None
+            zip_info = get_zip_info_from_offset(zip_file, frame_info.offset)
+            if not zip_info:
+                return None
+            elf_file_path = Path(zip_file.extract(zip_info, self.temp_dir))
+            display_elf_file = f"{self.path}!{frame_info.elf_file.name}"
+            source = ElfSymbolSource(
+                elf_file_path, display_elf_file, self.build_id_reader
+            )
+            if (provider := source.find_providing_elf_file(frame_info)) is not None:
+                return provider
+            return None
+
+
+# TODO: Delete once the refactor is done.
+# This is a crutch to keep the mock-heavy tests working before they can be replaced.
+def find_elf_in_apk(
+    path: Path, frame_info: FrameInfo, temp_dir: Path, build_id_reader: BuildIdReader
+) -> Path | None:
+    return ApkSymbolSource(path, build_id_reader, temp_dir).find_providing_elf_file(
+        frame_info
+    )
+
+
 def get_ndk_paths() -> tuple[Path, Path, str]:
     """Parse and find all of the paths of the ndk
 
@@ -382,20 +417,9 @@ class FrameInfo:
                 return elf_file_path
 
             apk_file_path = symbol_dir / self.container_file.name
-            with zipfile.ZipFile(apk_file_path) as zip_file:
-                assert self.offset is not None
-                zip_info = get_zip_info_from_offset(zip_file, self.offset)
-                if not zip_info:
-                    return None
-                elf_file_path = Path(
-                    zip_file.extract(zip_info, tmp_dir.get_directory())
-                )
-                display_elf_file = "%s!%s" % (apk_file_path, elf_file)
-                if not self.verify_elf_file(
-                    build_id_reader, elf_file_path, display_elf_file
-                ):
-                    return None
-                return elf_file_path
+            return find_elf_in_apk(
+                apk_file_path, self, tmp_dir.get_directory(), build_id_reader
+            )
         elif self.elf_file.suffix == ".apk":
             # This matches a stack line such as:
             #   #08 pc 00cbed9c  GoogleCamera.apk (offset 0x6e32000)
