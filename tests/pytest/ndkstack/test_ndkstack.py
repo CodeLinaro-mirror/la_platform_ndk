@@ -15,11 +15,8 @@
 # limitations under the License.
 #
 """Unittests for ndk-stack.py"""
-import textwrap
 import unittest
-from io import StringIO
 from pathlib import Path, PurePosixPath
-from typing import Any
 from unittest import mock
 from unittest.mock import Mock, patch
 from zipfile import ZipFile
@@ -343,6 +340,129 @@ class TestApkSymbolSource:
         assert source.find_providing_elf_file(frame) == tmp_path / "libtest.so"
 
 
+class TestDirectorySymbolSource:
+    def test_finds_file_in_directory(self, tmp_path: Path) -> None:
+        (tmp_path / "libapp.so").touch()
+        source = ndkstack.DirectorySymbolSource(
+            tmp_path, FakeBuildIdReader(None), tmp_path / "tmp"
+        )
+        frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libapp.so")
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == tmp_path / "libapp.so"
+
+    def test_finds_file_in_apk(self, tmp_path: Path) -> None:
+        apk_path = tmp_path / "Test.apk"
+        with ZipFile(apk_path, mode="w") as zip_file:
+            zip_file.writestr("libapp.so", "")
+            offset = zip_file.getinfo("libapp.so").header_offset
+
+        source = ndkstack.DirectorySymbolSource(
+            tmp_path, FakeBuildIdReader(None), tmp_path / "tmp"
+        )
+        frame = ndkstack.FrameInfo.from_line(
+            (
+                f"  #03 pc 00002050  /fake/fake.apk (offset 0x{offset:02x}) "
+                "(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
+            ).encode("utf-8")
+        )
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == tmp_path / "tmp/libapp.so"
+
+    def test_reuses_extracted_apk_source(self, tmp_path: Path) -> None:
+        apk_path = tmp_path / "Test.apk"
+        with ZipFile(apk_path, mode="w") as zip_file:
+            zip_file.writestr("libapp.so", "")
+            offset = zip_file.getinfo("libapp.so").header_offset
+
+        source = ndkstack.DirectorySymbolSource(
+            tmp_path, FakeBuildIdReader(None), tmp_path / "tmp"
+        )
+        frame = ndkstack.FrameInfo.from_line(
+            (
+                f"  #03 pc 00002050  /fake/fake.apk (offset 0x{offset:02x}) "
+                "(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
+            ).encode("utf-8")
+        )
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == tmp_path / "tmp/libapp.so"
+        first_mtime = (tmp_path / "tmp/libapp.so").stat().st_mtime
+
+        frame = ndkstack.FrameInfo.from_line(
+            (
+                f"  #03 pc 00002050  /fake/fake.apk (offset 0x{offset:02x}) "
+                "(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
+            ).encode("utf-8")
+        )
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == tmp_path / "tmp/libapp.so"
+
+        assert (tmp_path / "tmp/libapp.so").stat().st_mtime == first_mtime
+
+    def test_prefers_non_container_source(self, tmp_path: Path) -> None:
+        # This test is not (and cannot) be completely reliable. The implementation uses
+        # Path.iterdir() internally, whose iteration order is not documented, but is
+        # almost certainly directory order, which varies by file system. If this test
+        # fails, there is a bug in the implementation, but it may incorrectly pass.
+        #
+        # Try to get the APK to show up first by making sure it's both the first file
+        # added to the directory, and alphabetically first. It's not a guarantee, but
+        # it's correct on at least some systems.
+        apk_path = tmp_path / "0Test.apk"
+        with ZipFile(apk_path, mode="w") as zip_file:
+            zip_file.writestr("libapp.so", "")
+            offset = zip_file.getinfo("libapp.so").header_offset
+        (tmp_path / "libapp.so").touch()
+
+        source = ndkstack.DirectorySymbolSource(
+            tmp_path, FakeBuildIdReader(None), tmp_path / "tmp"
+        )
+        frame = ndkstack.FrameInfo.from_line(
+            (
+                f"  #03 pc 00002050  /fake/0Test.apk!libapp.so (offset 0x{offset:02x}) "
+                "(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
+            ).encode("utf-8")
+        )
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == tmp_path / "libapp.so"
+
+    def test_finds_named_file_from_previously_extracted_apk(
+        self, tmp_path: Path
+    ) -> None:
+        apk_path = tmp_path / "Test.apk"
+        with ZipFile(apk_path, mode="w") as zip_file:
+            zip_file.writestr("libapp.so", "")
+            offset = zip_file.getinfo("libapp.so").header_offset
+
+        source = ndkstack.DirectorySymbolSource(
+            tmp_path,
+            FakeBuildIdReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
+            tmp_path / "tmp",
+        )
+        frame = ndkstack.FrameInfo.from_line(
+            (
+                f"  #03 pc 00002050  /fake/fake.apk (offset 0x{offset:02x}) "
+                "(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
+            ).encode("utf-8")
+        )
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == tmp_path / "tmp/libapp.so"
+
+        # This file doesn't exist in the symbol directory, but does exist in the temp
+        # dir because it was found from the previous APK trace.
+        #
+        # We do **not** find sources if the file was not previously found. Finding a
+        # matching ELF file by only name/build ID when the file is not present in an
+        # unextracted form on disk would require extracting every zip/APK found in the
+        # directory, which would be probitively costly if the user passed, say, the AGP
+        # build directory as their search directory.
+        frame = ndkstack.FrameInfo.from_line(
+            b"  #03 pc 00002050  /fake/libapp.so "
+            b"(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
+        )
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == tmp_path / "tmp/libapp.so"
+
+
 class GetZipInfoFromOffsetTests(unittest.TestCase):
     """Tests of get_zip_info_from_offset()."""
 
@@ -405,191 +525,6 @@ class GetZipInfoFromOffsetTests(unittest.TestCase):
         zip_info = ndkstack.get_zip_info_from_offset(self.mock_zip, 0x1000)
         assert zip_info is not None
         self.assertEqual(0x1000, zip_info.header_offset)
-
-
-class GetElfFileTests(unittest.TestCase):
-    """Tests of FrameInfo.get_elf_file()."""
-
-    def setUp(self) -> None:
-        self.mock_zipfile = mock.MagicMock()
-        self.mock_zipfile.extract.return_value = "/fake_tmp/libtest.so"
-        self.mock_zipfile.__enter__.return_value = self.mock_zipfile
-
-        self.mock_tmp = mock.MagicMock()
-        self.mock_tmp.get_directory.return_value = "/fake_tmp"
-
-    # TODO: Refactor so this can specify a real return type.
-    # We can't specify anything more accurate than `Any` here because the real return
-    # value is a FrameInfo that's had its verify_elf_file method monkey patched with a
-    # mock.
-    def create_frame_info(self, tail: bytes) -> Any:
-        line = b"  #03 pc 00002050  " + tail
-        frame_info = ndkstack.FrameInfo.from_line(line)
-        assert frame_info is not None
-        # mypy can't (and won't) tolerate this.
-        # https://github.com/python/mypy/issues/2427
-        frame_info.verify_elf_file = mock.Mock()  # type: ignore
-        return frame_info
-
-    def test_file_only(self) -> None:
-        frame_info = self.create_frame_info(b"/fake/libfake.so")
-        frame_info.verify_elf_file.return_value = True
-        self.assertEqual(
-            Path("/fake_dir/symbols/libfake.so"),
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp),
-        )
-        frame_info.verify_elf_file.reset_mock()
-        frame_info.verify_elf_file.return_value = False
-        self.assertFalse(
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp)
-        )
-        self.assertEqual(b"/fake/libfake.so", frame_info.tail)
-
-    def test_container_set_elf_in_symbol_dir(self) -> None:
-        frame_info = self.create_frame_info(b"/fake/fake.apk!libtest.so")
-        frame_info.verify_elf_file.return_value = True
-        self.assertEqual(
-            Path("/fake_dir/symbols/libtest.so"),
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp),
-        )
-        self.assertEqual(b"/fake/fake.apk!libtest.so", frame_info.tail)
-
-    def test_container_set_elf_not_in_symbol_dir_apk_does_not_exist(self) -> None:
-        frame_info = self.create_frame_info(b"/fake/fake.apk!libtest.so")
-        frame_info.verify_elf_file.return_value = False
-        with self.assertRaises(IOError):
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp)
-        self.assertEqual(b"/fake/fake.apk!libtest.so", frame_info.tail)
-
-    @patch.object(ndkstack, "find_elf_in_apk")
-    @patch.object(ndkstack, "get_zip_info_from_offset")
-    @patch("zipfile.ZipFile")
-    def test_container_set_elf_in_apk(
-        self, mock_zipclass: Mock, mock_get_zip_info: Mock, mock_find_elf_in_apk: Mock
-    ) -> None:
-        mock_zipclass.return_value = self.mock_zipfile
-        mock_get_zip_info.return_value.filename = "libtest.so"
-
-        frame_info = self.create_frame_info(
-            b"/fake/fake.apk!libtest.so (offset 0x2000)"
-        )
-        frame_info.verify_elf_file.return_value = False
-        # This looks stupid mostly because it is. The important behavior is tested above
-        # in TestApkSymbolSource. This just verifies that traces of this pattern will
-        # search in APKs.
-        mock_find_elf_in_apk.return_value = Path("/fake_tmp/libtest.so")
-        self.assertEqual(
-            Path("/fake_tmp/libtest.so"),
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp),
-        )
-        self.assertEqual(b"/fake/fake.apk!libtest.so (offset 0x2000)", frame_info.tail)
-
-    @patch.object(ndkstack, "find_elf_in_apk")
-    @patch.object(ndkstack, "get_zip_info_from_offset")
-    @patch("zipfile.ZipFile")
-    def test_container_set_elf_in_apk_verify_fails(
-        self, mock_zipclass: Mock, mock_get_zip_info: Mock, mock_find_elf_in_apk: Mock
-    ) -> None:
-        mock_zipclass.return_value = self.mock_zipfile
-        mock_get_zip_info.return_value.filename = "libtest.so"
-
-        frame_info = self.create_frame_info(
-            b"/fake/fake.apk!libtest.so (offset 0x2000)"
-        )
-        frame_info.verify_elf_file.return_value = False
-        mock_find_elf_in_apk.return_value = False
-        self.assertFalse(
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp)
-        )
-        self.assertEqual(b"/fake/fake.apk!libtest.so (offset 0x2000)", frame_info.tail)
-
-    def test_in_apk_file_does_not_exist(self) -> None:
-        frame_info = self.create_frame_info(b"/fake/fake.apk")
-        frame_info.verify_elf_file.return_value = False
-        with self.assertRaises(IOError):
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp)
-        self.assertEqual(b"/fake/fake.apk", frame_info.tail)
-
-    @patch.object(ndkstack, "get_zip_info_from_offset")
-    @patch("zipfile.ZipFile")
-    def test_in_apk_elf_not_in_apk(self, _: Mock, mock_get_zip_info: Mock) -> None:
-        mock_get_zip_info.return_value = None
-        frame_info = self.create_frame_info(b"/fake/fake.apk (offset 0x2000)")
-        self.assertFalse(
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp)
-        )
-        self.assertEqual(b"/fake/fake.apk (offset 0x2000)", frame_info.tail)
-
-    @patch.object(ndkstack, "find_elf_in_apk")
-    @patch.object(ndkstack, "get_zip_info_from_offset")
-    @patch("zipfile.ZipFile")
-    def test_in_apk_elf_in_symbol_dir(
-        self, mock_zipclass: Mock, mock_get_zip_info: Mock, mock_find_elf_in_apk: Mock
-    ) -> None:
-        mock_zipclass.return_value = self.mock_zipfile
-        mock_get_zip_info.return_value.filename = "libtest.so"
-
-        def rewrite_tail(
-            _path: Path,
-            frame_info: ndkstack.FrameInfo,
-            _temp_dir: Path,
-            _build_id_reader: ndkstack.BuildIdReader,
-        ) -> Any:
-            frame_info.tail = b"/fake/fake.apk!libtest.so (offset 0x2000)"
-            return mock.DEFAULT
-
-        frame_info = self.create_frame_info(b"/fake/fake.apk (offset 0x2000)")
-        frame_info.verify_elf_file.return_value = True
-        mock_find_elf_in_apk.side_effect = rewrite_tail
-        mock_find_elf_in_apk.return_value = Path("/fake_dir/symbols/libtest.so")
-        self.assertEqual(
-            Path("/fake_dir/symbols/libtest.so"),
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp),
-        )
-        self.assertEqual(b"/fake/fake.apk!libtest.so (offset 0x2000)", frame_info.tail)
-
-    @patch.object(ndkstack, "get_zip_info_from_offset")
-    @patch("zipfile.ZipFile")
-    def test_in_apk_elf_in_apk(
-        self, mock_zipclass: Mock, mock_get_zip_info: Mock
-    ) -> None:
-        mock_zipclass.return_value = self.mock_zipfile
-        mock_get_zip_info.return_value.filename = "libtest.so"
-
-        frame_info = self.create_frame_info(b"/fake/fake.apk (offset 0x2000)")
-        frame_info.verify_elf_file.side_effect = [False, True]
-        self.assertEqual(
-            Path("/fake_tmp/libtest.so"),
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp),
-        )
-        self.assertEqual(b"/fake/fake.apk!libtest.so (offset 0x2000)", frame_info.tail)
-
-    @patch.object(ndkstack, "find_elf_in_apk")
-    @patch.object(ndkstack, "get_zip_info_from_offset")
-    @patch("zipfile.ZipFile")
-    def test_in_apk_elf_in_apk_verify_fails(
-        self, mock_zipclass: Mock, mock_get_zip_info: Mock, mock_find_elf_in_apk: Mock
-    ) -> None:
-        mock_zipclass.return_value = self.mock_zipfile
-        mock_get_zip_info.return_value.filename = "libtest.so"
-
-        def rewrite_tail(
-            _path: Path,
-            frame_info: ndkstack.FrameInfo,
-            _temp_dir: Path,
-            _build_id_reader: ndkstack.BuildIdReader,
-        ) -> Any:
-            frame_info.tail = b"/fake/fake.apk!libtest.so (offset 0x2000)"
-            return mock.DEFAULT
-
-        frame_info = self.create_frame_info(b"/fake/fake.apk (offset 0x2000)")
-        frame_info.verify_elf_file.side_effect = False
-        mock_find_elf_in_apk.return_value = False
-        mock_find_elf_in_apk.side_effect = rewrite_tail
-        self.assertFalse(
-            frame_info.get_elf_file(Path("/fake_dir/symbols"), None, self.mock_tmp)
-        )
-        self.assertEqual(b"/fake/fake.apk!libtest.so (offset 0x2000)", frame_info.tail)
 
 
 if __name__ == "__main__":
