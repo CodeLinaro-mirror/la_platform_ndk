@@ -107,19 +107,16 @@ class ElfSymbolSource(SymbolSource):
         return self.build_id_reader.build_id(self.path)
 
     def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
-        # TODO: Accept matching build IDs even if the file names don't match.
-        # This is probably the wrong order of precedence, but it's the pre-existing
-        # behavior.
+        if frame_info.build_id is not None and self.build_id is not None:
+            if self.build_id_matches(frame_info.build_id):
+                return self.path
+            return None
         if frame_info.elf_file is None:
             # The trace frame named a container and an offset but not the file name. We
             # can't find the file until that's been found by parsing the container,
             # which will be done by the container specific SymbolSource.
             return None
         if self.path.name != frame_info.elf_file.name:
-            return None
-        if frame_info.build_id is not None and self.build_id is not None:
-            if self.build_id_matches(frame_info.build_id):
-                return self.path
             return None
         return self.path
 

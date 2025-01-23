@@ -233,11 +233,6 @@ class TestElfSymbolSource:
         assert frame is not None
         assert source.find_providing_elf_file(frame) == Path("libs/libapp.so")
 
-    # This is probably the better behavior. If the build IDs match, those debug symbols
-    # should be used, even if the libraries were renamed somewhere along the way. This
-    # is the existing behavior though, so if we want to make that change it should be
-    # done in a follow up.
-    @pytest.mark.xfail(reason="not implemented")
     def test_accepts_matching_build_id_with_different_file_name(self) -> None:
         source = ndkstack.ElfSymbolSource(
             Path("libs/libapp.so"),
@@ -421,6 +416,20 @@ class TestDirectorySymbolSource:
                 f"  #03 pc 00002050  /fake/0Test.apk!libapp.so (offset 0x{offset:02x}) "
                 "(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
             ).encode("utf-8")
+        )
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == tmp_path / "libapp.so"
+
+    def test_finds_build_id_match_without_apk(self, tmp_path: Path) -> None:
+        (tmp_path / "libapp.so").touch()
+        source = ndkstack.DirectorySymbolSource(
+            tmp_path,
+            FakeBuildIdReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
+            tmp_path / "tmp",
+        )
+        frame = ndkstack.FrameInfo.from_line(
+            b"  #03 pc 00002050  /fake/fake.apk (offset 0x0) "
+            b"(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
         )
         assert frame is not None
         assert source.find_providing_elf_file(frame) == tmp_path / "libapp.so"

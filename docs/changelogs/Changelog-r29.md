@@ -18,3 +18,7 @@ directly, see the [build system maintainers guide].
 
 - Updated LLVM to clang-r547379. See `clang_source_info.md` in the toolchain
   directory for version information.
+- ndk-stack will now find symbols in files with matching build IDs even if the
+  file names do not match.
+- ndk-stack will now find symbols in files with matching build IDs even if the
+  name of the file is not present in the trace.
