@@ -28,6 +28,8 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from abc import ABC, abstractmethod
+from functools import cached_property
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
@@ -48,6 +50,212 @@ class TmpDir:
         if not self._tmp_dir:
             self._tmp_dir = Path(tempfile.mkdtemp())
         return self._tmp_dir
+
+
+class BuildIdReader(ABC):
+    @abstractmethod
+    def build_id(self, path: Path) -> bytes | None:
+        """Returns the build ID of the given file, or None if none was found."""
+
+
+class Readelf(BuildIdReader):
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def build_id(self, path: Path) -> bytes | None:
+        return get_build_id(self.path, path)
+
+
+class NullBuildIdReader(BuildIdReader):
+    def build_id(self, path: Path) -> bytes | None:
+        return None
+
+
+class SymbolSource(ABC):
+    """A source of debug symbols.
+
+    A symbol source may be an APK, a native-debug-symbols.zip files (the
+    artifact of debug symbols that is uploaded to Play), an ELF file, or a
+    directory containing other symbol sources.
+    """
+
+    @abstractmethod
+    def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
+        """Finds an ELF file which provides debug info for the given frame.
+
+        Args:
+            frame_info: The frame to find debug info for.
+
+        Returns:
+            The path of an ELF file which provides debug info for the given frame if one
+            is found in this symbol source. Returns None if no matching file was found.
+        """
+
+
+class ElfSymbolSource(SymbolSource):
+    """An ELF file containing debug symbols."""
+
+    def __init__(
+        self, path: Path, display_path: str, build_id_reader: BuildIdReader
+    ) -> None:
+        self.path = path
+        self.display_path = display_path
+        self.build_id_reader = build_id_reader
+
+    @cached_property
+    def build_id(self) -> bytes | None:
+        return self.build_id_reader.build_id(self.path)
+
+    def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
+        if frame_info.build_id is not None and self.build_id is not None:
+            if self.build_id_matches(frame_info.build_id):
+                return self.path
+            return None
+        if frame_info.elf_file is None:
+            # The trace frame named a container and an offset but not the file name. We
+            # can't find the file until that's been found by parsing the container,
+            # which will be done by the container specific SymbolSource.
+            return None
+        if self.path.name != frame_info.elf_file.name:
+            return None
+        return self.path
+
+    def build_id_matches(self, build_id: bytes) -> bool:
+        """Returns True if the build ID of the ELF file matches the frame info."""
+        if self.build_id is None:
+            print(f"ERROR: Could not determine build ID for {self.path}", flush=True)
+            return False
+        if build_id != self.build_id:
+            print(f"WARNING: Mismatched build id for {self.display_path}", flush=True)
+            print(f"WARNING:   Expected {build_id.decode('utf-8')}", flush=True)
+            print(f"WARNING:   Found    {self.build_id.decode('utf-8')}", flush=True)
+            return False
+        return True
+
+
+class ApkSymbolSource(SymbolSource):
+    def __init__(
+        self, path: Path, build_id_reader: BuildIdReader, temp_dir: Path
+    ) -> None:
+        self.path = path
+        self.build_id_reader = build_id_reader
+        self.temp_dir = temp_dir
+
+    def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
+        # This matches a file format such as Base.apk!libsomething.so, or possibly
+        # Base.apk with an offset but not file name.
+
+        # This should only happen when the trace line is in a file name format (without
+        # a container and offset), but the file itself is not in the search directory.
+        # In this case we won't be able to find the symbols even if they are present in
+        # an APK in the search directory, because checking build IDs on every library in
+        # each APK in the search directory could be prohibitively expensive (the user
+        # could have given their whole AGP build directory as a search path). We may
+        # still find symbols in that situation as long as a previous frame was in the
+        # container/offset format and caused a file with a build ID to be extracted,
+        # because then we will find the result in the build ID cache.
+        if frame_info.offset is None:
+            return None
+
+        with zipfile.ZipFile(self.path) as zip_file:
+            zip_info = get_zip_info_from_offset(zip_file, frame_info.offset)
+            if not zip_info:
+                return None
+            elf_file_path = Path(zip_file.extract(zip_info, self.temp_dir))
+            if frame_info.elf_file is None:
+                frame_info.fixup_unknown_elf_file(elf_file_path)
+            assert frame_info.elf_file is not None
+            display_elf_file = f"{self.path}!{frame_info.elf_file.name}"
+            source = ElfSymbolSource(
+                elf_file_path, display_elf_file, self.build_id_reader
+            )
+            if (provider := source.find_providing_elf_file(frame_info)) is not None:
+                return provider
+            return None
+
+
+class DirectorySymbolSource(SymbolSource):
+    def __init__(
+        self, path: Path, build_id_reader: BuildIdReader, temp_dir: Path
+    ) -> None:
+        self.path = path
+        self.build_id_reader = build_id_reader
+        self.temp_dir = temp_dir
+        self._cache_by_build_id: dict[bytes, Path] = {}
+        self._cache_by_path: dict[PurePosixPath, Path] = {}
+        self._cache_by_container_offset: dict[tuple[PurePosixPath, int], Path] = {}
+
+    def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
+        if (provider := self._find_cached(frame_info)) is not None:
+            return provider
+
+        container_sources: list[Path] = []
+        # TODO: Make recursive?
+        # Making this recursive will require more careful handling of multiple matches.
+        # If the user gives their whole AGP build directory as the search path, the
+        # directory will have both stripped and unstripped libraries, and we'll need to
+        # avoid matching the stripped library when an unstripped one is available.
+        # TODO: Try matching file names first to speed up search.
+        for path in self.path.iterdir():
+            if not path.is_file():
+                continue
+
+            if path.suffix == ".apk":
+                # Search these after we've exhausted the bare files. Searching APKs
+                # requires extracting the libraries from the APK, and if the file is
+                # already extracted, we prefer that source rather than doing the work to
+                # extract the library from the APK.
+                container_sources.append(path)
+                continue
+
+            # TODO: Cache build IDs for unmatched files.
+            # Just because they didn't match on this frame doesn't mean they won't on
+            # another. Cache the build ID if we've already had to resolve it to speed up
+            # future frames.
+            provider = ElfSymbolSource(
+                path, str(Path), self.build_id_reader
+            ).find_providing_elf_file(frame_info)
+            if provider is not None:
+                self._cache_result(frame_info, provider)
+                return provider
+
+        for path in container_sources:
+            provider = ApkSymbolSource(
+                path, self.build_id_reader, self.temp_dir
+            ).find_providing_elf_file(frame_info)
+            if provider is not None:
+                self._cache_result(frame_info, provider)
+                return provider
+            return None
+        return None
+
+    def _find_cached(self, frame_info: FrameInfo) -> Path | None:
+        if frame_info.build_id is not None:
+            return self._cache_by_build_id.get(frame_info.build_id)
+        if frame_info.elf_file is not None:
+            # There's no need to fall through to container/offset cache searching if the
+            # frame has a known file name. If we previously found a cache/offset match
+            # and entered it into the cache, its file name will have also been entered.
+            return self._cache_by_path.get(frame_info.elf_file)
+        if frame_info.container_file is not None and frame_info.offset is not None:
+            return self._cache_by_container_offset.get(
+                (frame_info.container_file, frame_info.offset)
+            )
+        return None
+
+    def _cache_result(self, frame_info: FrameInfo, path: Path) -> None:
+        # This can be absent at the beginning of a search in the case where a trace line
+        # has a container name and an offset, but will be filled in if we find the
+        # result in an APK. If we find a build ID match in a file without having to
+        # search for the file in an APK, however, the name won't have been populated.
+        if frame_info.elf_file is not None:
+            self._cache_by_path[frame_info.elf_file] = path
+        if frame_info.container_file is not None and frame_info.offset is not None:
+            self._cache_by_container_offset[
+                (frame_info.container_file, frame_info.offset)
+            ] = path
+        if frame_info.build_id is not None:
+            self._cache_by_build_id[frame_info.build_id] = path
 
 
 def get_ndk_paths() -> tuple[Path, Path, str]:
@@ -235,7 +443,7 @@ class FrameInfo:
         self.num = num
         self.pc = pc
         self.tail = tail
-        self.elf_file = elf_file
+        self.elf_file: PurePosixPath | None = elf_file
         self.sanitizer = sanitizer
 
         if (library_match := FrameInfo._lib_re.match(str(self.elf_file))) is not None:
@@ -249,6 +457,13 @@ class FrameInfo:
             if os.path.basename(self.container_file) == os.path.basename(self.elf_file):
                 self.elf_file = self.container_file
                 self.container_file = None
+        elif self.elf_file.suffix == ".apk":
+            # Some traces have containers but no ELF file name. When this happens the
+            # APK will be wrongly parsed as the ELF file and we won't have a container.
+            # Rewrite those so that they identify the container correctly with an absent
+            # ELF file rather than having to deal with that quirk elsewhere.
+            self.container_file = self.elf_file
+            self.elf_file = None
         else:
             self.container_file = None
         m = FrameInfo._offset_re.search(self.tail)
@@ -262,130 +477,57 @@ class FrameInfo:
         else:
             self.build_id = None
 
-    def verify_elf_file(
-        self, readelf_path: Path | None, elf_file_path: Path, display_elf_path: str
-    ) -> bool:
-        """Verify if the elf file is valid.
+    def fixup_unknown_elf_file(self, elf_path: Path) -> None:
+        """Updates the ELF file of the trace and rewrites the tail with the new path.
 
-        Returns: True if the elf file exists and build id matches (if it exists).
+        This cannot be done during parsing because some traces contain an APK name but
+        no ELF file. When this happens there's an offset which allows us to find the
+        file in the APK, but we can't do that until we've found and read the APK, which
+        happens later.
+
+        When this happens we also rewrite the tail so the log we print is more helpful
+        to the user.
         """
+        assert self.container_file is not None
+        container_name = self.container_file.name
+        self.elf_file = PurePosixPath(elf_path.name)
+        # Rewrite the output tail so that it goes from:
+        #   GoogleCamera.apk ...
+        # To:
+        #   GoogleCamera.apk!libsomething.so ...
+        index = self.tail.find(container_name.encode("utf-8"))
+        if index != -1:
+            index += len(container_name)
+            self.tail = (
+                self.tail[0:index]
+                + b"!"
+                + bytes(elf_path.name, encoding="utf-8")
+                + self.tail[index:]
+            )
 
-        if not os.path.exists(elf_file_path):
-            return False
-        if readelf_path and self.build_id:
-            build_id = get_build_id(readelf_path, elf_file_path)
-            if build_id is None:
-                print(
-                    f"ERROR: Could not determine build ID for {elf_file_path}",
-                    flush=True,
-                )
-                return False
-            if self.build_id != build_id:
-                print(
-                    "WARNING: Mismatched build id for %s" % (display_elf_path),
-                    flush=True,
-                )
-                print(
-                    "WARNING:   Expected %s" % (self.build_id.decode("utf-8")),
-                    flush=True,
-                )
-                print("WARNING:   Found    %s" % (build_id.decode("utf-8")), flush=True)
-                return False
-        return True
 
-    def get_elf_file(
-        self, symbol_dir: Path, readelf_path: Path | None, tmp_dir: TmpDir
-    ) -> Path | None:
-        """Get the path to the elf file represented by this frame.
-
-        Returns: The path to the elf file if it is valid, or None if
-                 no valid elf file can be found. If the file has to be
-                 extracted from an apk, the elf file will be placed in
-                 tmp_dir.
-        """
-
-        elf_file = self.elf_file.name
-        if self.container_file:
-            # This matches a file format such as Base.apk!libsomething.so
-            # so see if we can find libsomething.so in the symbol directory.
-            elf_file_path = symbol_dir / elf_file
-            if self.verify_elf_file(readelf_path, elf_file_path, str(elf_file_path)):
-                return elf_file_path
-
-            apk_file_path = symbol_dir / self.container_file.name
-            with zipfile.ZipFile(apk_file_path) as zip_file:
-                assert self.offset is not None
-                zip_info = get_zip_info_from_offset(zip_file, self.offset)
-                if not zip_info:
-                    return None
-                elf_file_path = Path(
-                    zip_file.extract(zip_info, tmp_dir.get_directory())
-                )
-                display_elf_file = "%s!%s" % (apk_file_path, elf_file)
-                if not self.verify_elf_file(
-                    readelf_path, elf_file_path, display_elf_file
-                ):
-                    return None
-                return elf_file_path
-        elif self.elf_file.suffix == ".apk":
-            # This matches a stack line such as:
-            #   #08 pc 00cbed9c  GoogleCamera.apk (offset 0x6e32000)
-            apk_file_path = symbol_dir / elf_file
-            with zipfile.ZipFile(apk_file_path) as zip_file:
-                assert self.offset is not None
-                zip_info = get_zip_info_from_offset(zip_file, self.offset)
-                if not zip_info:
-                    return None
-
-                # Rewrite the output tail so that it goes from:
-                #   GoogleCamera.apk ...
-                # To:
-                #   GoogleCamera.apk!libsomething.so ...
-                index = self.tail.find(elf_file.encode("utf-8"))
-                if index != -1:
-                    index += len(elf_file)
-                    self.tail = (
-                        self.tail[0:index]
-                        + b"!"
-                        + bytes(zip_info.filename, encoding="utf-8")
-                        + self.tail[index:]
-                    )
-                elf_file = os.path.basename(zip_info.filename)
-                elf_file_path = symbol_dir / elf_file
-                if self.verify_elf_file(
-                    readelf_path, elf_file_path, str(elf_file_path)
-                ):
-                    return elf_file_path
-
-                elf_file_path = Path(
-                    zip_file.extract(zip_info, tmp_dir.get_directory())
-                )
-                display_elf_path = "%s!%s" % (apk_file_path, elf_file)
-                if not self.verify_elf_file(
-                    readelf_path, elf_file_path, display_elf_path
-                ):
-                    return None
-                return elf_file_path
-        elf_file_path = symbol_dir / elf_file
-        if self.verify_elf_file(readelf_path, elf_file_path, str(elf_file_path)):
-            return elf_file_path
-        return None
+def get_build_id_reader(ndk_root: Path, ndk_bin: Path, host_tag: str) -> BuildIdReader:
+    if (readelf_path := find_readelf(ndk_root, ndk_bin, host_tag)) is not None:
+        return Readelf(readelf_path)
+    return NullBuildIdReader()
 
 
 def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
-    ndk_paths = get_ndk_paths()
+    ndk_root, ndk_bin, host_tag = get_ndk_paths()
     symbolize_cmd = [
-        str(find_llvm_symbolizer(*ndk_paths)),
+        str(find_llvm_symbolizer(ndk_root, ndk_bin, host_tag)),
         "--demangle",
         "--functions=linkage",
         "--inlines",
     ]
-    readelf_path = find_readelf(*ndk_paths)
-
+    build_id_reader = get_build_id_reader(ndk_root, ndk_bin, host_tag)
     symbolize_proc = None
 
     try:
         tmp_dir = TmpDir()
+        symbol_source = DirectorySymbolSource(
+            symbol_dir, build_id_reader, Path(tmp_dir.get_directory())
+        )
         symbolize_proc = subprocess.Popen(
             symbolize_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE
         )
@@ -424,7 +566,7 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
                 saw_frame = True
 
             try:
-                elf_file = frame_info.get_elf_file(symbol_dir, readelf_path, tmp_dir)
+                elf_file = symbol_source.find_providing_elf_file(frame_info)
             except IOError:
                 elf_file = None
 
