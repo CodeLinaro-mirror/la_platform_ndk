@@ -655,6 +655,7 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
             sys.stdout.buffer.write(out_line)
             indent = (out_line.find(b"(") + 1) * b" "
             if not elf_file:
+                sys.stdout.buffer.flush()
                 continue
             value = b'"%s" 0x%s\n' % (elf_file, frame_info.pc)
             symbolize_proc.stdin.write(value)
@@ -665,6 +666,7 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
                     break
                 # TODO: rewrite file names base on a source path?
                 sys.stdout.buffer.write(b"%s%s\n" % (indent, symbolizer_output))
+            sys.stdout.buffer.flush()
     finally:
         trace_input.close()
         tmp_dir.delete()
