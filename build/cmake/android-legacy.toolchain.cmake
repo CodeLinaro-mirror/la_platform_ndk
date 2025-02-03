@@ -32,7 +32,7 @@
 # ANDROID_CCACHE
 # ANDROID_SANITIZE
 
-cmake_minimum_required(VERSION 3.6.0)
+cmake_minimum_required(VERSION 3.10.0)
 
 # Inhibit all of CMake's own NDK handling code.
 set(CMAKE_SYSTEM_VERSION 1)
