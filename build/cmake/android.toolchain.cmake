@@ -32,7 +32,7 @@
 # ANDROID_CCACHE
 # ANDROID_SANITIZE
 
-cmake_minimum_required(VERSION 3.6.0)
+cmake_minimum_required(VERSION 3.10.0)
 
 # CMake invokes the toolchain file twice during the first build, but only once
 # during subsequent rebuilds. This was causing the various flags to be added
