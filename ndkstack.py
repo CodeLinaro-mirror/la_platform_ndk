@@ -21,6 +21,7 @@ See https://developer.android.com/ndk/guides/ndk-stack for more information.
 from __future__ import annotations
 
 import argparse
+import functools
 import logging
 import os
 import re
@@ -72,9 +73,11 @@ class Readelf(ElfReader):
     def __init__(self, path: Path) -> None:
         self.path = path
 
+    @functools.lru_cache()
     def build_id(self, path: Path) -> bytes | None:
         return get_build_id(self.path, path)
 
+    @functools.lru_cache()
     def has_debug_info(self, path: Path) -> bool:
         try:
             proc = subprocess.run(
@@ -253,10 +256,6 @@ class DirectorySymbolSource(SymbolSource):
                 container_sources.append(path)
                 continue
 
-            # TODO: Cache build IDs for unmatched files.
-            # Just because they didn't match on this frame doesn't mean they won't on
-            # another. Cache the build ID if we've already had to resolve it to speed up
-            # future frames.
             provider = ElfSymbolSource(
                 path, str(path), self.elf_reader
             ).find_providing_elf_file(frame_info)
