@@ -58,13 +58,13 @@ class TmpDir:
         return self._tmp_dir
 
 
-class BuildIdReader(ABC):
+class ElfReader(ABC):
     @abstractmethod
     def build_id(self, path: Path) -> bytes | None:
         """Returns the build ID of the given file, or None if none was found."""
 
 
-class Readelf(BuildIdReader):
+class Readelf(ElfReader):
     def __init__(self, path: Path) -> None:
         self.path = path
 
@@ -72,7 +72,7 @@ class Readelf(BuildIdReader):
         return get_build_id(self.path, path)
 
 
-class NullBuildIdReader(BuildIdReader):
+class NullElfReader(ElfReader):
     def build_id(self, path: Path) -> bytes | None:
         return None
 
@@ -101,16 +101,14 @@ class SymbolSource(ABC):
 class ElfSymbolSource(SymbolSource):
     """An ELF file containing debug symbols."""
 
-    def __init__(
-        self, path: Path, display_path: str, build_id_reader: BuildIdReader
-    ) -> None:
+    def __init__(self, path: Path, display_path: str, elf_reader: ElfReader) -> None:
         self.path = path
         self.display_path = display_path
-        self.build_id_reader = build_id_reader
+        self.elf_reader = elf_reader
 
     @cached_property
     def build_id(self) -> bytes | None:
-        return self.build_id_reader.build_id(self.path)
+        return self.elf_reader.build_id(self.path)
 
     def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
         if frame_info.build_id is not None and self.build_id is not None:
@@ -137,11 +135,9 @@ class ElfSymbolSource(SymbolSource):
 
 
 class ApkSymbolSource(SymbolSource):
-    def __init__(
-        self, path: Path, build_id_reader: BuildIdReader, temp_dir: Path
-    ) -> None:
+    def __init__(self, path: Path, elf_reader: ElfReader, temp_dir: Path) -> None:
         self.path = path
-        self.build_id_reader = build_id_reader
+        self.elf_reader = elf_reader
         self.temp_dir = temp_dir
 
     def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
@@ -179,20 +175,16 @@ class ApkSymbolSource(SymbolSource):
                 frame_info.fixup_unknown_elf_file(elf_file_path)
             assert frame_info.elf_file is not None
             display_elf_file = f"{self.path}!{frame_info.elf_file.name}"
-            source = ElfSymbolSource(
-                elf_file_path, display_elf_file, self.build_id_reader
-            )
+            source = ElfSymbolSource(elf_file_path, display_elf_file, self.elf_reader)
             if (provider := source.find_providing_elf_file(frame_info)) is not None:
                 return provider
             return None
 
 
 class DirectorySymbolSource(SymbolSource):
-    def __init__(
-        self, path: Path, build_id_reader: BuildIdReader, temp_dir: Path
-    ) -> None:
+    def __init__(self, path: Path, elf_reader: ElfReader, temp_dir: Path) -> None:
         self.path = path
-        self.build_id_reader = build_id_reader
+        self.elf_reader = elf_reader
         self.temp_dir = temp_dir
         self._cache_by_build_id: dict[bytes, Path] = {}
         self._cache_by_path: dict[PurePosixPath, Path] = {}
@@ -234,7 +226,7 @@ class DirectorySymbolSource(SymbolSource):
             # another. Cache the build ID if we've already had to resolve it to speed up
             # future frames.
             provider = ElfSymbolSource(
-                path, str(path), self.build_id_reader
+                path, str(path), self.elf_reader
             ).find_providing_elf_file(frame_info)
             if provider is not None:
                 self._cache_result(frame_info, provider)
@@ -242,7 +234,7 @@ class DirectorySymbolSource(SymbolSource):
 
         for path in container_sources:
             provider = ApkSymbolSource(
-                path, self.build_id_reader, self.temp_dir
+                path, self.elf_reader, self.temp_dir
             ).find_providing_elf_file(frame_info)
             if provider is not None:
                 self._cache_result(frame_info, provider)
@@ -555,10 +547,10 @@ class FrameInfo:
             )
 
 
-def get_build_id_reader(ndk_root: Path, ndk_bin: Path, host_tag: str) -> BuildIdReader:
+def get_elf_reader(ndk_root: Path, ndk_bin: Path, host_tag: str) -> ElfReader:
     if (readelf_path := find_readelf(ndk_root, ndk_bin, host_tag)) is not None:
         return Readelf(readelf_path)
-    return NullBuildIdReader()
+    return NullElfReader()
 
 
 def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
@@ -569,13 +561,13 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
         "--functions=linkage",
         "--inlines",
     ]
-    build_id_reader = get_build_id_reader(ndk_root, ndk_bin, host_tag)
+    elf_reader = get_elf_reader(ndk_root, ndk_bin, host_tag)
     symbolize_proc = None
 
     try:
         tmp_dir = TmpDir()
         symbol_source = DirectorySymbolSource(
-            symbol_dir, build_id_reader, Path(tmp_dir.get_directory())
+            symbol_dir, elf_reader, Path(tmp_dir.get_directory())
         )
         symbolize_proc = subprocess.Popen(
             symbolize_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE

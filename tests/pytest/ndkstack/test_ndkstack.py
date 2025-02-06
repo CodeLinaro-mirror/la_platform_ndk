@@ -204,8 +204,8 @@ class FrameTests(unittest.TestCase):
         assert frame_info.pc == b"000000000006263c"
 
 
-class FakeBuildIdReader(ndkstack.BuildIdReader):
-    def __init__(self, build_id: bytes | None) -> None:
+class FakeElfReader(ndkstack.ElfReader):
+    def __init__(self, build_id: bytes | None = None) -> None:
         self._build_id = build_id
 
     def build_id(self, path: Path) -> bytes | None:
@@ -217,7 +217,7 @@ class TestElfSymbolSource:
         source = ndkstack.ElfSymbolSource(
             Path("libs/libapp.so"),
             "libapp.so",
-            FakeBuildIdReader(None),
+            FakeElfReader(),
         )
         frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libfake.so")
         assert frame is not None
@@ -227,7 +227,7 @@ class TestElfSymbolSource:
         source = ndkstack.ElfSymbolSource(
             Path("libs/libapp.so"),
             "libapp.so",
-            FakeBuildIdReader(None),
+            FakeElfReader(),
         )
         frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libapp.so")
         assert frame is not None
@@ -237,7 +237,7 @@ class TestElfSymbolSource:
         source = ndkstack.ElfSymbolSource(
             Path("libs/libapp.so"),
             "libapp.so",
-            FakeBuildIdReader(b"d1d420a58366bf29f1312ec826f16564"),
+            FakeElfReader(b"d1d420a58366bf29f1312ec826f16564"),
         )
         frame = ndkstack.FrameInfo.from_line(
             b"  #03 pc 00002050  /fake/libfake.so (BuildId: d1d420a58366bf29f1312ec826f16564)"
@@ -249,7 +249,7 @@ class TestElfSymbolSource:
         source = ndkstack.ElfSymbolSource(
             Path("libs/libfake.so"),
             "libfake.so",
-            FakeBuildIdReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
+            FakeElfReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
         )
         frame = ndkstack.FrameInfo.from_line(
             b"  #03 pc 00002050  /fake/libfake.so (BuildId: d1d420a58366bf29f1312ec826f16564)"
@@ -261,7 +261,7 @@ class TestElfSymbolSource:
         source = ndkstack.ElfSymbolSource(
             Path("libs/libapp.so"),
             "libapp.so",
-            FakeBuildIdReader(b"d1d420a58366bf29f1312ec826f16564"),
+            FakeElfReader(b"d1d420a58366bf29f1312ec826f16564"),
         )
         frame = ndkstack.FrameInfo.from_line(
             b"  #03 pc 00002050  /fake/libapp.so (BuildId: d1d420a58366bf29f1312ec826f16564)"
@@ -276,7 +276,7 @@ class TestApkSymbolSource:
         with ZipFile(apk_path, mode="w"):
             # Intentionally empty so no offset matches.
             pass
-        source = ndkstack.ApkSymbolSource(apk_path, FakeBuildIdReader(None), tmp_path)
+        source = ndkstack.ApkSymbolSource(apk_path, FakeElfReader(), tmp_path)
         frame = ndkstack.FrameInfo.from_line(
             b"  #03 pc 00002050  /fake/fake.apk!libtest.so (offset 0x2000)"
         )
@@ -289,7 +289,9 @@ class TestApkSymbolSource:
             zip_file.writestr("libtest.so", "")
             offset = zip_file.getinfo("libtest.so").header_offset
         source = ndkstack.ApkSymbolSource(
-            apk_path, FakeBuildIdReader(b"d1d420a58366bf29f1312ec826f16564"), tmp_path
+            apk_path,
+            FakeElfReader(b"d1d420a58366bf29f1312ec826f16564"),
+            tmp_path,
         )
         frame = ndkstack.FrameInfo.from_line(
             (
@@ -306,7 +308,9 @@ class TestApkSymbolSource:
             zip_file.writestr("libtest.so", "")
             offset = zip_file.getinfo("libtest.so").header_offset
         source = ndkstack.ApkSymbolSource(
-            apk_path, FakeBuildIdReader(b"6a0c10d19d5bf39a5a78fa514371dab3"), tmp_path
+            apk_path,
+            FakeElfReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
+            tmp_path,
         )
         frame = ndkstack.FrameInfo.from_line(
             (
@@ -323,7 +327,9 @@ class TestApkSymbolSource:
             zip_file.writestr("libtest.so", "")
             offset = zip_file.getinfo("libtest.so").header_offset
         source = ndkstack.ApkSymbolSource(
-            apk_path, FakeBuildIdReader(b"6a0c10d19d5bf39a5a78fa514371dab3"), tmp_path
+            apk_path,
+            FakeElfReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
+            tmp_path,
         )
         frame = ndkstack.FrameInfo.from_line(
             (
@@ -339,7 +345,7 @@ class TestDirectorySymbolSource:
     def test_finds_file_in_directory(self, tmp_path: Path) -> None:
         (tmp_path / "libapp.so").touch()
         source = ndkstack.DirectorySymbolSource(
-            tmp_path, FakeBuildIdReader(None), tmp_path / "tmp"
+            tmp_path, FakeElfReader(), tmp_path / "tmp"
         )
         frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libapp.so")
         assert frame is not None
@@ -352,7 +358,7 @@ class TestDirectorySymbolSource:
             offset = zip_file.getinfo("libapp.so").header_offset
 
         source = ndkstack.DirectorySymbolSource(
-            tmp_path, FakeBuildIdReader(None), tmp_path / "tmp"
+            tmp_path, FakeElfReader(), tmp_path / "tmp"
         )
         frame = ndkstack.FrameInfo.from_line(
             (
@@ -370,7 +376,7 @@ class TestDirectorySymbolSource:
             offset = zip_file.getinfo("libapp.so").header_offset
 
         source = ndkstack.DirectorySymbolSource(
-            tmp_path, FakeBuildIdReader(None), tmp_path / "tmp"
+            tmp_path, FakeElfReader(), tmp_path / "tmp"
         )
         frame = ndkstack.FrameInfo.from_line(
             (
@@ -409,7 +415,7 @@ class TestDirectorySymbolSource:
         (tmp_path / "libapp.so").touch()
 
         source = ndkstack.DirectorySymbolSource(
-            tmp_path, FakeBuildIdReader(None), tmp_path / "tmp"
+            tmp_path, FakeElfReader(), tmp_path / "tmp"
         )
         frame = ndkstack.FrameInfo.from_line(
             (
@@ -424,7 +430,7 @@ class TestDirectorySymbolSource:
         (tmp_path / "libapp.so").touch()
         source = ndkstack.DirectorySymbolSource(
             tmp_path,
-            FakeBuildIdReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
+            FakeElfReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
             tmp_path / "tmp",
         )
         frame = ndkstack.FrameInfo.from_line(
@@ -444,7 +450,7 @@ class TestDirectorySymbolSource:
 
         source = ndkstack.DirectorySymbolSource(
             tmp_path,
-            FakeBuildIdReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
+            FakeElfReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
             tmp_path / "tmp",
         )
         frame = ndkstack.FrameInfo.from_line(
