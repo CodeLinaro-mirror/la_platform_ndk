@@ -126,9 +126,6 @@ class ElfSymbolSource(SymbolSource):
             print(f"ERROR: Could not determine build ID for {self.path}", flush=True)
             return False
         if build_id != self.build_id:
-            print(f"WARNING: Mismatched build id for {self.display_path}", flush=True)
-            print(f"WARNING:   Expected {build_id.decode('utf-8')}", flush=True)
-            print(f"WARNING:   Found    {self.build_id.decode('utf-8')}", flush=True)
             return False
         return True
 
