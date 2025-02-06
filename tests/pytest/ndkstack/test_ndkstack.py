@@ -205,11 +205,17 @@ class FrameTests(unittest.TestCase):
 
 
 class FakeElfReader(ndkstack.ElfReader):
-    def __init__(self, build_id: bytes | None = None) -> None:
+    def __init__(
+        self, build_id: bytes | None = None, has_debug_info: bool = True
+    ) -> None:
         self._build_id = build_id
+        self._has_debug_info = has_debug_info
 
     def build_id(self, path: Path) -> bytes | None:
         return self._build_id
+
+    def has_debug_info(self, path: Path) -> bool:
+        return self._has_debug_info
 
 
 class TestElfSymbolSource:
@@ -268,6 +274,16 @@ class TestElfSymbolSource:
         )
         assert frame is not None
         assert source.find_providing_elf_file(frame) == Path("libs/libapp.so")
+
+    def test_rejects_file_without_debug_info(self) -> None:
+        source = ndkstack.ElfSymbolSource(
+            Path("libs/libfake.so"),
+            "libfake.so",
+            FakeElfReader(has_debug_info=False),
+        )
+        frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libfake.so")
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) is None
 
 
 class TestApkSymbolSource:

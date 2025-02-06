@@ -63,6 +63,10 @@ class ElfReader(ABC):
     def build_id(self, path: Path) -> bytes | None:
         """Returns the build ID of the given file, or None if none was found."""
 
+    @abstractmethod
+    def has_debug_info(self, path: Path) -> bool:
+        """Returns True if the path is an ELF file with debug info."""
+
 
 class Readelf(ElfReader):
     def __init__(self, path: Path) -> None:
@@ -71,10 +75,36 @@ class Readelf(ElfReader):
     def build_id(self, path: Path) -> bytes | None:
         return get_build_id(self.path, path)
 
+    def has_debug_info(self, path: Path) -> bool:
+        try:
+            proc = subprocess.run(
+                [self.path, "-SW", path],
+                capture_output=True,
+                encoding="UTF-8",
+                check=True,
+            )
+            # This may need some tuning. There are a handful of sections that are
+            # prefixed with .debug that may have the data we need. This casts an overly
+            # broad net, but that's somewhat better than too narrow.
+            #
+            # .gnu_debugdata is minidebug info, which can also include symbol data.
+            return ".debug" in proc.stdout or ".gnu_debugdata" in proc.stdout
+        except subprocess.CalledProcessError:
+            # Most likely the file isn't an ELF file. We don't really care why it fails
+            # though. Just ignore it and move on.
+            return False
+
 
 class NullElfReader(ElfReader):
     def build_id(self, path: Path) -> bytes | None:
         return None
+
+    def has_debug_info(self, path: Path) -> bool:
+        # We can't actually know, but the NullElfReader is used in cases where readelf
+        # can't be found. In that case, it's better to attempt to get symbols from a
+        # file that might have debug info than to reject all files, which would result
+        # in never being able to symbolize anything.
+        return True
 
 
 class SymbolSource(ABC):
@@ -114,6 +144,8 @@ class ElfSymbolSource(SymbolSource):
         if frame_info.build_id is not None and self.build_id is not None:
             if self.build_id_matches(frame_info.build_id):
                 return self.path
+            return None
+        if not self.elf_reader.has_debug_info(self.path):
             return None
         if frame_info.elf_file is None:
             # The trace frame named a container and an offset but not the file name. We
