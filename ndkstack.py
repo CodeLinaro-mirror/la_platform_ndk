@@ -332,8 +332,10 @@ def get_build_id(readelf_path: Path, elf_file: Path) -> bytes | None:
     """
 
     try:
-        output = subprocess.check_output([str(readelf_path), "-n", str(elf_file)])
-        m = re.search(rb"Build ID:\s+([0-9a-f]+)", output)
+        proc = subprocess.run(
+            [str(readelf_path), "-n", str(elf_file)], capture_output=True, check=True
+        )
+        m = re.search(rb"Build ID:\s+([0-9a-f]+)", proc.stdout)
         if not m:
             return None
         return m.group(1)
