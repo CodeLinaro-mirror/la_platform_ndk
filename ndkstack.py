@@ -21,6 +21,7 @@ See https://developer.android.com/ndk/guides/ndk-stack for more information.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import re
 import shutil
@@ -34,6 +35,11 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
 EXE_SUFFIX = ".exe" if os.name == "nt" else ""
+
+
+def logger() -> logging.Logger:
+    """Returns the module-level logger."""
+    return logging.getLogger(__name__)
 
 
 class TmpDir:
@@ -160,6 +166,16 @@ class ApkSymbolSource(SymbolSource):
                 return None
             elf_file_path = Path(zip_file.extract(zip_info, self.temp_dir))
             if frame_info.elf_file is None:
+                # This shouldn't ever happen outside tests. We try to fill this data in
+                # before ever scanning the directory because we want to prefer non-APK
+                # matches, but the redundant check here allows us to test the nameless
+                # trace handling in ApkSymbolSource without needing to rely on
+                # DirectorySymbolSource as well.
+                #
+                # TODO: Fixup names during FrameInfo creation.
+                # Moving the name fixups outside the symbol search entirely would make
+                # the code responsible for it much less messy, but requires some
+                # additional plumbing.
                 frame_info.fixup_unknown_elf_file(elf_file_path)
             assert frame_info.elf_file is not None
             display_elf_file = f"{self.path}!{frame_info.elf_file.name}"
@@ -185,6 +201,14 @@ class DirectorySymbolSource(SymbolSource):
     def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
         if (provider := self._find_cached(frame_info)) is not None:
             return provider
+
+        # For lines like "#00 pc 0000e4fc  test.apk (offset 0x1000)", we need to fill
+        # out the missing file name before we start the search. This is because we want
+        # to match non-APK sources first for performance reasons (we don't have to
+        # extract the APK that way), but to do that we need to know the name of the ELF
+        # file first.
+        if frame_info.container_file is not None and frame_info.elf_file is None:
+            self._fixup_elf_file_name(frame_info)
 
         container_sources: list[Path] = []
         # TODO: Make recursive?
@@ -253,6 +277,25 @@ class DirectorySymbolSource(SymbolSource):
             ] = path
         if frame_info.build_id is not None:
             self._cache_by_build_id[frame_info.build_id] = path
+
+    def _fixup_elf_file_name(self, frame_info: FrameInfo) -> None:
+        if frame_info.offset is None:
+            logger().warning(
+                "Frame has no file name or container offset, cannot find symbols: %s",
+                frame_info.raw.decode("utf-8"),
+            )
+            return
+
+        for path in self.path.glob("*.apk"):
+            if not path.is_file():
+                continue
+
+            with zipfile.ZipFile(path) as zip_file:
+                zip_info = get_zip_info_from_offset(zip_file, frame_info.offset)
+                if not zip_info:
+                    continue
+                frame_info.fixup_unknown_elf_file(Path(zip_info.filename))
+                return
 
 
 def get_ndk_paths() -> tuple[Path, Path, str]:
@@ -422,23 +465,30 @@ class FrameInfo:
             # an extremely unlikely circumstance. In any case, the fix on the
             # user's side is "don't do that", so just attempt to decode UTF-8
             # and let the exception be thrown if it isn't.
-            return cls(num, pc, tail, PurePosixPath(elf_file.decode("utf-8")))
+            return cls(line, num, pc, tail, PurePosixPath(elf_file.decode("utf-8")))
         m = FrameInfo._sanitizer_line_re.match(line)
         if m:
             num, pc, tail, elf_file = m.group(1, 3, 2, 2)
             return cls(
-                num, pc, tail, PurePosixPath(elf_file.decode("utf-8")), sanitizer=True
+                line,
+                num,
+                pc,
+                tail,
+                PurePosixPath(elf_file.decode("utf-8")),
+                sanitizer=True,
             )
         return None
 
     def __init__(
         self,
+        raw: bytes,
         num: bytes,
         pc: bytes,
         tail: bytes,
         elf_file: PurePosixPath,
         sanitizer: bool = False,
     ) -> None:
+        self.raw = raw
         self.num = num
         self.pc = pc
         self.tail = tail
