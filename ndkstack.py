@@ -676,6 +676,14 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
             symbolize_proc.wait()
 
 
+def verbosity_to_log_level(verbosity: int) -> logging._Level:
+    if verbosity >= 2:
+        return logging.DEBUG
+    if verbosity == 1:
+        return logging.INFO
+    return logging.WARNING
+
+
 def main(argv: list[str] | None = None) -> None:
     """ "Program entry point."""
     parser = argparse.ArgumentParser(
@@ -699,7 +707,17 @@ def main(argv: list[str] | None = None) -> None:
         type=argparse.FileType("rb"),
         help="input filename",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        dest="verbosity",
+        action="count",
+        default=0,
+        help="increase verbosity",
+    )
     args = parser.parse_args(argv)
+
+    logging.basicConfig(level=verbosity_to_log_level(args.verbosity))
 
     if not os.path.exists(args.symbol_dir):
         sys.exit("{} does not exist!\n".format(args.symbol_dir))
