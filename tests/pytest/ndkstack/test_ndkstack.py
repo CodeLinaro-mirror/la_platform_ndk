@@ -16,6 +16,7 @@
 #
 """Unittests for ndk-stack.py"""
 import unittest
+from collections import defaultdict
 from pathlib import Path, PurePosixPath
 from unittest import mock
 from unittest.mock import Mock, patch
@@ -470,36 +471,6 @@ class TestDirectorySymbolSource:
         assert frame is not None
         assert source.find_providing_elf_file(frame) == tmp_path / "tmp/libapp.so"
 
-    def test_reuses_extracted_apk_source(self, tmp_path: Path) -> None:
-        apk_path = tmp_path / "Test.apk"
-        with ZipFile(apk_path, mode="w") as zip_file:
-            zip_file.writestr("libapp.so", "")
-            offset = zip_file.getinfo("libapp.so").header_offset
-
-        source = ndkstack.DirectorySymbolSource(
-            tmp_path, FakeElfReader(), tmp_path / "tmp"
-        )
-        frame = ndkstack.FrameInfo.from_line(
-            (
-                f"  #03 pc 00002050  /fake/fake.apk (offset 0x{offset:02x}) "
-                "(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
-            ).encode("utf-8")
-        )
-        assert frame is not None
-        assert source.find_providing_elf_file(frame) == tmp_path / "tmp/libapp.so"
-        first_mtime = (tmp_path / "tmp/libapp.so").stat().st_mtime
-
-        frame = ndkstack.FrameInfo.from_line(
-            (
-                f"  #03 pc 00002050  /fake/fake.apk (offset 0x{offset:02x}) "
-                "(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
-            ).encode("utf-8")
-        )
-        assert frame is not None
-        assert source.find_providing_elf_file(frame) == tmp_path / "tmp/libapp.so"
-
-        assert (tmp_path / "tmp/libapp.so").stat().st_mtime == first_mtime
-
     def test_prefers_non_container_source(self, tmp_path: Path) -> None:
         # This test is not (and cannot) be completely reliable. The implementation uses
         # Path.iterdir() internally, whose iteration order is not documented, but is
@@ -541,42 +512,102 @@ class TestDirectorySymbolSource:
         assert frame is not None
         assert source.find_providing_elf_file(frame) == tmp_path / "libapp.so"
 
-    def test_finds_named_file_from_previously_extracted_apk(
-        self, tmp_path: Path
+
+class FakeSingleUseSymbolSource(ndkstack.SymbolSource):
+    def __init__(
+        self,
+        build_id_matches: dict[bytes, Path],
+        path_matches: dict[str, Path],
+        container_offset_matches: dict[tuple[str, int], Path],
     ) -> None:
-        apk_path = tmp_path / "Test.apk"
-        with ZipFile(apk_path, mode="w") as zip_file:
-            zip_file.writestr("libapp.so", "")
-            offset = zip_file.getinfo("libapp.so").header_offset
+        self.build_id_matches = build_id_matches
+        self.path_matches = path_matches
+        self.container_offset_matches = container_offset_matches
+        self.used = False
 
-        source = ndkstack.DirectorySymbolSource(
-            tmp_path,
-            FakeElfReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
-            tmp_path / "tmp",
+    def find_providing_elf_file(self, frame_info: ndkstack.FrameInfo) -> Path | None:
+        if self.used:
+            pytest.fail("FakeSingleUseSymbolSource was queried more than once")
+
+        provider = self._find_providing_elf_file(frame_info)
+        if provider is not None:
+            self.used = True
+        return provider
+
+    def _find_providing_elf_file(self, frame_info: ndkstack.FrameInfo) -> Path | None:
+        if (
+            frame_info.build_id is not None
+            and frame_info.build_id in self.build_id_matches
+        ):
+            return self.build_id_matches[frame_info.build_id]
+        if (
+            frame_info.elf_file is not None
+            and frame_info.elf_file.name in self.path_matches
+        ):
+            return self.path_matches[frame_info.elf_file.name]
+        if frame_info.container_file is not None:
+            assert frame_info.offset is not None
+            return self.container_offset_matches.get(
+                (frame_info.container_file.name, frame_info.offset)
+            )
+        return None
+
+
+class TestCachedSymbolSource:
+    def test_finds_cached_build_id(self) -> None:
+        source = ndkstack.CachingSymbolSource(
+            FakeSingleUseSymbolSource(
+                {b"1234": Path("build-id/1234")},
+                {"libapp.so": Path("symbols/libapp.so")},
+                {("test.apk", 0x1000): Path("extracted/libapp.so")},
+            )
         )
         frame = ndkstack.FrameInfo.from_line(
-            (
-                f"  #03 pc 00002050  /fake/fake.apk (offset 0x{offset:02x}) "
-                "(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
-            ).encode("utf-8")
+            b"  #03 pc 00002050  /fake/libfake.so (BuildId: 1234)"
         )
         assert frame is not None
-        assert source.find_providing_elf_file(frame) == tmp_path / "tmp/libapp.so"
+        assert source.find_providing_elf_file(frame) == Path("build-id/1234")
+        assert source.find_providing_elf_file(frame) == Path("build-id/1234")
 
-        # This file doesn't exist in the symbol directory, but does exist in the temp
-        # dir because it was found from the previous APK trace.
-        #
-        # We do **not** find sources if the file was not previously found. Finding a
-        # matching ELF file by only name/build ID when the file is not present in an
-        # unextracted form on disk would require extracting every zip/APK found in the
-        # directory, which would be probitively costly if the user passed, say, the AGP
-        # build directory as their search directory.
+    def test_finds_cached_name(self) -> None:
+        source = ndkstack.CachingSymbolSource(
+            FakeSingleUseSymbolSource(
+                {b"1234": Path("build-id/1234")},
+                {"libapp.so": Path("symbols/libapp.so")},
+                {("test.apk", 0x1000): Path("extracted/libapp.so")},
+            )
+        )
+        frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libapp.so")
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == Path("symbols/libapp.so")
+        assert source.find_providing_elf_file(frame) == Path("symbols/libapp.so")
+
+    def test_finds_cached_container_and_offset(self) -> None:
+        source = ndkstack.CachingSymbolSource(
+            FakeSingleUseSymbolSource(
+                {b"1234": Path("build-id/1234")},
+                {"libapp.so": Path("symbols/libapp.so")},
+                {("test.apk", 0x1000): Path("extracted/libapp.so")},
+            )
+        )
         frame = ndkstack.FrameInfo.from_line(
-            b"  #03 pc 00002050  /fake/libapp.so "
-            b"(BuildId: 6a0c10d19d5bf39a5a78fa514371dab3)"
+            b"  #03 pc 00002050  /fake/test.apk (offset 0x1000)"
         )
         assert frame is not None
-        assert source.find_providing_elf_file(frame) == tmp_path / "tmp/libapp.so"
+        assert source.find_providing_elf_file(frame) == Path("extracted/libapp.so")
+        assert source.find_providing_elf_file(frame) == Path("extracted/libapp.so")
+
+    def test_rejects_missing(self) -> None:
+        source = ndkstack.CachingSymbolSource(
+            FakeSingleUseSymbolSource(
+                {b"1234": Path("build-id/1234")},
+                {"libapp.so": Path("symbols/libapp.so")},
+                {("test.apk", 0x1000): Path("extracted/libapp.so")},
+            )
+        )
+        frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libmissing.so")
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) is None
 
 
 class GetZipInfoFromOffsetTests(unittest.TestCase):

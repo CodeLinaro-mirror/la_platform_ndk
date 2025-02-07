@@ -267,14 +267,8 @@ class DirectorySymbolSource(SymbolSource):
         self.path = path
         self.elf_reader = elf_reader
         self.temp_dir = temp_dir
-        self._cache_by_build_id: dict[bytes, Path] = {}
-        self._cache_by_path: dict[PurePosixPath, Path] = {}
-        self._cache_by_container_offset: dict[tuple[PurePosixPath, int], Path] = {}
 
     def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
-        if (provider := self._find_cached(frame_info)) is not None:
-            return provider
-
         # For lines like "#00 pc 0000e4fc  test.apk (offset 0x1000)", we need to fill
         # out the missing file name before we start the search. This is because we want
         # to match non-APK sources first for performance reasons (we don't have to
@@ -306,7 +300,6 @@ class DirectorySymbolSource(SymbolSource):
                 frame_info
             )
             if provider is not None:
-                self._cache_result(frame_info, provider)
                 return provider
 
         for path in container_sources:
@@ -314,10 +307,45 @@ class DirectorySymbolSource(SymbolSource):
                 path, self.elf_reader, self.temp_dir
             ).find_providing_elf_file(frame_info)
             if provider is not None:
-                self._cache_result(frame_info, provider)
                 return provider
             return None
         return None
+
+    def _fixup_elf_file_name(self, frame_info: FrameInfo) -> None:
+        if frame_info.offset is None:
+            logger().warning(
+                "Frame has no file name or container offset, cannot find symbols: %s",
+                frame_info.raw.decode("utf-8"),
+            )
+            return
+
+        for path in self.path.glob("*.apk"):
+            if not path.is_file():
+                continue
+
+            with zipfile.ZipFile(path) as zip_file:
+                zip_info = get_zip_info_from_offset(zip_file, frame_info.offset)
+                if not zip_info:
+                    continue
+                frame_info.fixup_unknown_elf_file(Path(zip_info.filename))
+                return
+
+
+class CachingSymbolSource(SymbolSource):
+    def __init__(self, source_to_cache: SymbolSource) -> None:
+        self.source = source_to_cache
+        self._cache_by_build_id: dict[bytes, Path] = {}
+        self._cache_by_path: dict[PurePosixPath, Path] = {}
+        self._cache_by_container_offset: dict[tuple[PurePosixPath, int], Path] = {}
+
+    def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
+        if (provider := self._find_cached(frame_info)) is not None:
+            return provider
+
+        provider = self.source.find_providing_elf_file(frame_info)
+        if provider is not None:
+            self._cache_result(frame_info, provider)
+        return provider
 
     def _find_cached(self, frame_info: FrameInfo) -> Path | None:
         if frame_info.build_id is not None:
@@ -346,25 +374,6 @@ class DirectorySymbolSource(SymbolSource):
             ] = path
         if frame_info.build_id is not None:
             self._cache_by_build_id[frame_info.build_id] = path
-
-    def _fixup_elf_file_name(self, frame_info: FrameInfo) -> None:
-        if frame_info.offset is None:
-            logger().warning(
-                "Frame has no file name or container offset, cannot find symbols: %s",
-                frame_info.raw.decode("utf-8"),
-            )
-            return
-
-        for path in self.path.glob("*.apk"):
-            if not path.is_file():
-                continue
-
-            with zipfile.ZipFile(path) as zip_file:
-                zip_info = get_zip_info_from_offset(zip_file, frame_info.offset)
-                if not zip_info:
-                    continue
-                frame_info.fixup_unknown_elf_file(Path(zip_info.filename))
-                return
 
 
 def get_ndk_paths() -> tuple[Path, Path, str]:
@@ -676,8 +685,10 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
 
     try:
         tmp_dir = TmpDir()
-        symbol_source = SymbolSource.from_path(
-            symbol_dir, elf_reader, Path(tmp_dir.get_directory())
+        symbol_source = CachingSymbolSource(
+            SymbolSource.from_path(
+                symbol_dir, elf_reader, Path(tmp_dir.get_directory())
+            )
         )
         symbolize_proc = subprocess.Popen(
             symbolize_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE
