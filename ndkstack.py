@@ -213,7 +213,7 @@ class DirectorySymbolSource(SymbolSource):
             # another. Cache the build ID if we've already had to resolve it to speed up
             # future frames.
             provider = ElfSymbolSource(
-                path, str(Path), self.build_id_reader
+                path, str(path), self.build_id_reader
             ).find_providing_elf_file(frame_info)
             if provider is not None:
                 self._cache_result(frame_info, provider)
