@@ -29,12 +29,6 @@
 #09 0x00006894 test.apk!libziparchive.so (offset 0x9a000) (BuildId: 786581cf8457e7df2bd30179c821d754)
                                           MappedZipFile::GetBasePtr() const
                                           system/core/libziparchive/zip_archive.cc:1155:0
-WARNING: Mismatched build id for SYMBOL_DIR/libziparchive.so
-WARNING:   Expected bad012345
-WARNING:   Found    786581cf8457e7df2bd30179c821d754
-WARNING: Mismatched build id for SYMBOL_DIR/test.apk!libziparchive.so
-WARNING:   Expected bad012345
-WARNING:   Found    786581cf8457e7df2bd30179c821d754
 #10 0x00006894 test.apk!libziparchive.so (offset 0x9a000) (BuildId: bad012345)
 #11 0x00006894 test.apk!libziparchive.so (offset 0x9a000)
                                           MappedZipFile::GetBasePtr() const
@@ -42,12 +36,6 @@ WARNING:   Found    786581cf8457e7df2bd30179c821d754
 #12 0x00006894 test.apk!libziparchive.so (offset 0x9a000) (BuildId: 786581cf8457e7df2bd30179c821d754)
                                           MappedZipFile::GetBasePtr() const
                                           system/core/libziparchive/zip_archive.cc:1155:0
-WARNING: Mismatched build id for SYMBOL_DIR/libziparchive.so
-WARNING:   Expected bad01245
-WARNING:   Found    786581cf8457e7df2bd30179c821d754
-WARNING: Mismatched build id for SYMBOL_DIR/test.apk!libziparchive.so
-WARNING:   Expected bad01245
-WARNING:   Found    786581cf8457e7df2bd30179c821d754
 #13 0x00006894 test.apk!libziparchive.so (offset 0x9a000) (BuildId: bad01245)
 #14 0x0033303c test.apk (offset 0x234000)
 #15 0x0002a019 libc.so
@@ -59,9 +47,6 @@ bionic/libc/arch-common/bionic/pthread_atfork.h:33:10
 #17 0x0002a019 libc.so (pthread_atfork) (BuildId: cd193f754b8535bc662dd794f63b7891)
                         pthread_atfork
                         bionic/libc/arch-common/bionic/pthread_atfork.h:33:10
-WARNING: Mismatched build id for SYMBOL_DIR/libc.so
-WARNING:   Expected bad012345
-WARNING:   Found    cd193f754b8535bc662dd794f63b7891
 #18 0x0002a019 libc.so (pthread_atfork) (BuildId: bad012345)
 #19 0x0002a019 libc.so!libc.so (pthread_atfork)
                                 pthread_atfork
