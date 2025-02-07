@@ -220,30 +220,20 @@ class FakeElfReader(ndkstack.ElfReader):
 
 class TestElfSymbolSource:
     def test_rejects_mismatched_file_names_with_no_build_id(self) -> None:
-        source = ndkstack.ElfSymbolSource(
-            Path("libs/libapp.so"),
-            "libapp.so",
-            FakeElfReader(),
-        )
+        source = ndkstack.ElfSymbolSource(Path("libs/libapp.so"), FakeElfReader())
         frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libfake.so")
         assert frame is not None
         assert source.find_providing_elf_file(frame) is None
 
     def test_accepts_matching_file_names_with_no_build_id(self) -> None:
-        source = ndkstack.ElfSymbolSource(
-            Path("libs/libapp.so"),
-            "libapp.so",
-            FakeElfReader(),
-        )
+        source = ndkstack.ElfSymbolSource(Path("libs/libapp.so"), FakeElfReader())
         frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libapp.so")
         assert frame is not None
         assert source.find_providing_elf_file(frame) == Path("libs/libapp.so")
 
     def test_accepts_matching_build_id_with_different_file_name(self) -> None:
         source = ndkstack.ElfSymbolSource(
-            Path("libs/libapp.so"),
-            "libapp.so",
-            FakeElfReader(b"d1d420a58366bf29f1312ec826f16564"),
+            Path("libs/libapp.so"), FakeElfReader(b"d1d420a58366bf29f1312ec826f16564")
         )
         frame = ndkstack.FrameInfo.from_line(
             b"  #03 pc 00002050  /fake/libfake.so (BuildId: d1d420a58366bf29f1312ec826f16564)"
@@ -253,9 +243,7 @@ class TestElfSymbolSource:
 
     def test_rejects_mismatched_build_id_with_same_file_name(self) -> None:
         source = ndkstack.ElfSymbolSource(
-            Path("libs/libfake.so"),
-            "libfake.so",
-            FakeElfReader(b"6a0c10d19d5bf39a5a78fa514371dab3"),
+            Path("libs/libfake.so"), FakeElfReader(b"6a0c10d19d5bf39a5a78fa514371dab3")
         )
         frame = ndkstack.FrameInfo.from_line(
             b"  #03 pc 00002050  /fake/libfake.so (BuildId: d1d420a58366bf29f1312ec826f16564)"
@@ -265,9 +253,7 @@ class TestElfSymbolSource:
 
     def test_accepts_matching_build_id_with_same_file_name(self) -> None:
         source = ndkstack.ElfSymbolSource(
-            Path("libs/libapp.so"),
-            "libapp.so",
-            FakeElfReader(b"d1d420a58366bf29f1312ec826f16564"),
+            Path("libs/libapp.so"), FakeElfReader(b"d1d420a58366bf29f1312ec826f16564")
         )
         frame = ndkstack.FrameInfo.from_line(
             b"  #03 pc 00002050  /fake/libapp.so (BuildId: d1d420a58366bf29f1312ec826f16564)"
@@ -277,9 +263,7 @@ class TestElfSymbolSource:
 
     def test_rejects_file_without_debug_info(self) -> None:
         source = ndkstack.ElfSymbolSource(
-            Path("libs/libfake.so"),
-            "libfake.so",
-            FakeElfReader(has_debug_info=False),
+            Path("libs/libfake.so"), FakeElfReader(has_debug_info=False)
         )
         frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libfake.so")
         assert frame is not None

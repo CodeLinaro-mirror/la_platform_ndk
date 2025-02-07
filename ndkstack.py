@@ -134,9 +134,8 @@ class SymbolSource(ABC):
 class ElfSymbolSource(SymbolSource):
     """An ELF file containing debug symbols."""
 
-    def __init__(self, path: Path, display_path: str, elf_reader: ElfReader) -> None:
+    def __init__(self, path: Path, elf_reader: ElfReader) -> None:
         self.path = path
-        self.display_path = display_path
         self.elf_reader = elf_reader
 
     @cached_property
@@ -208,9 +207,7 @@ class ApkSymbolSource(SymbolSource):
                 # the code responsible for it much less messy, but requires some
                 # additional plumbing.
                 frame_info.fixup_unknown_elf_file(elf_file_path)
-            assert frame_info.elf_file is not None
-            display_elf_file = f"{self.path}!{frame_info.elf_file.name}"
-            source = ElfSymbolSource(elf_file_path, display_elf_file, self.elf_reader)
+            source = ElfSymbolSource(elf_file_path, self.elf_reader)
             if (provider := source.find_providing_elf_file(frame_info)) is not None:
                 return provider
             return None
@@ -256,9 +253,9 @@ class DirectorySymbolSource(SymbolSource):
                 container_sources.append(path)
                 continue
 
-            provider = ElfSymbolSource(
-                path, str(path), self.elf_reader
-            ).find_providing_elf_file(frame_info)
+            provider = ElfSymbolSource(path, self.elf_reader).find_providing_elf_file(
+                frame_info
+            )
             if provider is not None:
                 self._cache_result(frame_info, provider)
                 return provider
