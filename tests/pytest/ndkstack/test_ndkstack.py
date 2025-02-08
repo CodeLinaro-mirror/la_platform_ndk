@@ -218,6 +218,23 @@ class FakeElfReader(ndkstack.ElfReader):
         return self._has_debug_info
 
 
+class PathSuffixFakeBuildIdReader(ndkstack.ElfReader):
+    def __init__(
+        self, build_id_path_map: dict[Path, bytes | None], suffix_components: int
+    ) -> None:
+        self.build_id_path_map = build_id_path_map
+        self.suffix_components = suffix_components
+
+    def build_id(self, path: Path) -> bytes | None:
+        # Construct a new Path using only the final suffix_components parts of the path.
+        # This will turn a/b/c/d into c/d if suffix_components is 2.
+        suffix = Path(*path.parts[-self.suffix_components :])
+        return self.build_id_path_map.get(suffix)
+
+    def has_debug_info(self, path: Path) -> bool:
+        return True
+
+
 class TestElfSymbolSource:
     def test_rejects_mismatched_file_names_with_no_build_id(self) -> None:
         source = ndkstack.ElfSymbolSource(Path("libs/libapp.so"), FakeElfReader())
@@ -268,6 +285,14 @@ class TestElfSymbolSource:
         frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libfake.so")
         assert frame is not None
         assert source.find_providing_elf_file(frame) is None
+
+    def test_matches_alternate_name(self) -> None:
+        source = ndkstack.ElfSymbolSource(
+            Path("libs/libfake.so.dbg"), FakeElfReader(), name_for_match="libfake.so"
+        )
+        frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  /fake/libfake.so")
+        assert frame is not None
+        assert source.find_providing_elf_file(frame) == Path("libs/libfake.so.dbg")
 
 
 class TestApkSymbolSource:
@@ -339,6 +364,82 @@ class TestApkSymbolSource:
         )
         assert frame is not None
         assert source.find_providing_elf_file(frame) == tmp_path / "libtest.so"
+
+
+class TestPlayDebugZipSymbolSource:
+    def test_finds_matched_build_id(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "native-debug-symbols.zip"
+        with ZipFile(zip_path, mode="w") as zip_file:
+            zip_file.writestr("arm64-v8a/libapp.so.dbg", "arm64-v8a/libapp.so")
+            zip_file.writestr("armeabi-v7a/libapp.so.dbg", "armeabi-v7a/libapp.so")
+            zip_file.writestr("x86/libapp.so.dbg", "x86/libapp.so")
+            zip_file.writestr("x86_64/libapp.so.dbg", "x86_64/libapp.so")
+
+        source = ndkstack.PlayDebugZipSymbolSource(
+            zip_path,
+            PathSuffixFakeBuildIdReader(
+                {
+                    Path("arm64-v8a/libapp.so.dbg"): b"0123",
+                    Path("armeabi-v7a/libapp.so.dbg"): b"4567",
+                    Path("x86/libapp.so.dbg"): b"89ab",
+                    Path("x86_64/libapp.so.dbg"): b"cdef",
+                },
+                suffix_components=2,
+            ),
+            tmp_path,
+        )
+
+        frame = ndkstack.FrameInfo.from_line(
+            b"  #03 pc 00002050  libtest.so (BuildId: 4567)"
+        )
+        assert frame is not None
+        provider = source.find_providing_elf_file(frame)
+        assert provider is not None
+        assert provider.read_text() == "armeabi-v7a/libapp.so"
+
+    def test_rejects_unmatch_build_id(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "native-debug-symbols.zip"
+        with ZipFile(zip_path, mode="w") as zip_file:
+            zip_file.writestr("arm64-v8a/libapp.so.dbg", "arm64-v8a/libapp.so")
+            zip_file.writestr("armeabi-v7a/libapp.so.dbg", "armeabi-v7a/libapp.so")
+            zip_file.writestr("x86/libapp.so.dbg", "x86/libapp.so")
+            zip_file.writestr("x86_64/libapp.so.dbg", "x86_64/libapp.so")
+
+        source = ndkstack.PlayDebugZipSymbolSource(
+            zip_path,
+            PathSuffixFakeBuildIdReader(
+                {
+                    Path("arm64-v8a/libapp.so.dbg"): b"0123",
+                    Path("armeabi-v7a/libapp.so.dbg"): b"4567",
+                    Path("x86/libapp.so.dbg"): b"89ab",
+                    Path("x86_64/libapp.so.dbg"): b"cdef",
+                },
+                suffix_components=2,
+            ),
+            tmp_path,
+        )
+
+        frame = ndkstack.FrameInfo.from_line(
+            b"  #03 pc 00002050  libtest.so (BuildId: 4827)"
+        )
+        assert frame is not None
+        provider = source.find_providing_elf_file(frame)
+        assert provider is None
+
+    def test_finds_correct_abi_without_build_id(self, tmp_path: Path) -> None:
+        zip_path = tmp_path / "native-debug-symbols.zip"
+        with ZipFile(zip_path, mode="w") as zip_file:
+            zip_file.writestr("arm64-v8a/libapp.so.dbg", "arm64-v8a/libapp.so")
+            zip_file.writestr("armeabi-v7a/libapp.so.dbg", "armeabi-v7a/libapp.so")
+            zip_file.writestr("x86/libapp.so.dbg", "x86/libapp.so")
+            zip_file.writestr("x86_64/libapp.so.dbg", "x86_64/libapp.so")
+
+        source = ndkstack.PlayDebugZipSymbolSource(zip_path, FakeElfReader(), tmp_path)
+        frame = ndkstack.FrameInfo.from_line(b"  #03 pc 00002050  libapp.so", abi="x86")
+        assert frame is not None
+        provider = source.find_providing_elf_file(frame)
+        assert provider is not None
+        assert provider.read_text() == "x86/libapp.so"
 
 
 class TestDirectorySymbolSource:
@@ -540,6 +641,34 @@ class GetZipInfoFromOffsetTests(unittest.TestCase):
         zip_info = ndkstack.get_zip_info_from_offset(self.mock_zip, 0x1000)
         assert zip_info is not None
         self.assertEqual(0x1000, zip_info.header_offset)
+
+
+class TestParseAbi:
+    def test_parse_abi_from_line(self) -> None:
+        assert (
+            ndkstack.parse_abi_from_line(
+                b"12-12 15:10:14.473  8156  8156 F DEBUG   : ABI: 'arm'"
+            )
+            == "armeabi-v7a"
+        )
+        assert (
+            ndkstack.parse_abi_from_line(
+                b"12-12 15:10:14.473  8156  8156 F DEBUG   : ABI: 'arm64'"
+            )
+            == "arm64-v8a"
+        )
+        assert (
+            ndkstack.parse_abi_from_line(
+                b"12-12 15:10:14.473  8156  8156 F DEBUG   : ABI: 'x86'"
+            )
+            == "x86"
+        )
+        assert (
+            ndkstack.parse_abi_from_line(
+                b"12-12 15:10:14.473  8156  8156 F DEBUG   : ABI: 'x86_64'"
+            )
+            == "x86_64"
+        )
 
 
 if __name__ == "__main__":

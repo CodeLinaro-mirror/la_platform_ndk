@@ -22,3 +22,8 @@ directly, see the [build system maintainers guide].
   file names do not match.
 - ndk-stack will now find symbols in files with matching build IDs even if the
   name of the file is not present in the trace.
+- [Issue 2078]: ndk-stack now accepts a [native-debug-symbols.zip] file for the
+  `--sym` argument as an alternative to a directory.
+
+[Issue 2078]: https://github.com/android/ndk/issues/2078
+[native-debug-symbols.zip]: https://support.google.com/googleplay/android-developer/answer/9848633?hl=en

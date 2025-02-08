@@ -118,6 +118,14 @@ class SymbolSource(ABC):
     directory containing other symbol sources.
     """
 
+    @staticmethod
+    def from_path(
+        path: Path, build_id_reader: ElfReader, temp_dir: Path
+    ) -> SymbolSource:
+        if path.name == "native-debug-symbols.zip":
+            return PlayDebugZipSymbolSource(path, build_id_reader, temp_dir)
+        return DirectorySymbolSource(path, build_id_reader, temp_dir)
+
     @abstractmethod
     def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
         """Finds an ELF file which provides debug info for the given frame.
@@ -134,9 +142,17 @@ class SymbolSource(ABC):
 class ElfSymbolSource(SymbolSource):
     """An ELF file containing debug symbols."""
 
-    def __init__(self, path: Path, elf_reader: ElfReader) -> None:
+    def __init__(
+        self,
+        path: Path,
+        elf_reader: ElfReader,
+        name_for_match: str | None = None,
+    ) -> None:
         self.path = path
         self.elf_reader = elf_reader
+        if name_for_match is None:
+            name_for_match = path.name
+        self.name_for_match = name_for_match
 
     @cached_property
     def build_id(self) -> bytes | None:
@@ -154,7 +170,7 @@ class ElfSymbolSource(SymbolSource):
             # can't find the file until that's been found by parsing the container,
             # which will be done by the container specific SymbolSource.
             return None
-        if self.path.name != frame_info.elf_file.name:
+        if self.name_for_match != frame_info.elf_file.name:
             return None
         return self.path
 
@@ -163,9 +179,7 @@ class ElfSymbolSource(SymbolSource):
         if self.build_id is None:
             print(f"ERROR: Could not determine build ID for {self.path}", flush=True)
             return False
-        if build_id != self.build_id:
-            return False
-        return True
+        return build_id == self.build_id
 
 
 class ApkSymbolSource(SymbolSource):
@@ -211,6 +225,41 @@ class ApkSymbolSource(SymbolSource):
             if (provider := source.find_providing_elf_file(frame_info)) is not None:
                 return provider
             return None
+
+
+class PlayDebugZipSymbolSource(SymbolSource):
+    """A native-debug-symbols.zip that is usually uploaded to Play.
+
+    This zip is produced by AGP and contains a directory per ABI with the debug symbols
+    for each library in that directory. For example, the contents of the zip file in the
+    ndkstack tests directory are:
+
+    * armeabi-v7a/libcrasher.so.dbg
+    * x86/libcrasher.so.dbg
+    * arm64-v8a/libcrasher.so.dbg
+    * x86_64/libcrasher.so.dbg
+    """
+
+    def __init__(self, path: Path, build_id_reader: ElfReader, temp_dir: Path) -> None:
+        self.path = path
+        self.build_id_reader = build_id_reader
+        self.temp_dir = temp_dir
+
+    def find_providing_elf_file(self, frame_info: FrameInfo) -> Path | None:
+        extract_dir = self.temp_dir / "native-debug-symbols"
+        with zipfile.ZipFile(self.path, mode="r") as zip_file:
+            zip_file.extractall(extract_dir)
+        for path in extract_dir.glob("*/*.so.dbg"):
+            if path.is_dir():
+                continue
+            if frame_info.abi is not None and path.parent.name != frame_info.abi:
+                continue
+            source = ElfSymbolSource(
+                path, self.build_id_reader, name_for_match=path.stem
+            )
+            if (provider := source.find_providing_elf_file(frame_info)) is not None:
+                return provider
+        return None
 
 
 class DirectorySymbolSource(SymbolSource):
@@ -475,7 +524,7 @@ class FrameInfo:
     _build_id_re = re.compile(rb"\(BuildId:\s+([0-9a-f]+)\)")
 
     @classmethod
-    def from_line(cls, line: bytes) -> FrameInfo | None:
+    def from_line(cls, line: bytes, abi: str | None = None) -> FrameInfo | None:
         m = FrameInfo._line_re.match(line)
         if m:
             num, pc, tail, elf_file = m.group(1, 2, 3, 4)
@@ -485,7 +534,9 @@ class FrameInfo:
             # an extremely unlikely circumstance. In any case, the fix on the
             # user's side is "don't do that", so just attempt to decode UTF-8
             # and let the exception be thrown if it isn't.
-            return cls(line, num, pc, tail, PurePosixPath(elf_file.decode("utf-8")))
+            return cls(
+                line, num, pc, tail, PurePosixPath(elf_file.decode("utf-8")), abi
+            )
         m = FrameInfo._sanitizer_line_re.match(line)
         if m:
             num, pc, tail, elf_file = m.group(1, 3, 2, 2)
@@ -495,6 +546,7 @@ class FrameInfo:
                 pc,
                 tail,
                 PurePosixPath(elf_file.decode("utf-8")),
+                abi,
                 sanitizer=True,
             )
         return None
@@ -506,6 +558,7 @@ class FrameInfo:
         pc: bytes,
         tail: bytes,
         elf_file: PurePosixPath,
+        abi: str | None,
         sanitizer: bool = False,
     ) -> None:
         self.raw = raw
@@ -513,6 +566,7 @@ class FrameInfo:
         self.pc = pc
         self.tail = tail
         self.elf_file: PurePosixPath | None = elf_file
+        self.abi = abi
         self.sanitizer = sanitizer
 
         if (library_match := FrameInfo._lib_re.match(str(self.elf_file))) is not None:
@@ -581,6 +635,34 @@ def get_elf_reader(ndk_root: Path, ndk_bin: Path, host_tag: str) -> ElfReader:
     return NullElfReader()
 
 
+def parse_abi_from_line(line: bytes) -> str | None:
+    """Parses the ABI line in the crash log.
+
+    Args:
+        line: The line from the crash log containing the ABI.
+
+    Returns:
+        The parsed ABI, or None if the ABI could not be parsed.
+    """
+    # Example line:
+    # 12-12 15:10:14.473  8156  8156 F DEBUG   : ABI: 'arm64'
+    # The optional /.*: / is needed because the hwasan trace in the tests for some
+    # reason has stripped most of the log format out of the file. If that's ever
+    # replaced with the full log text (I don't know how to regenerate it), this regex
+    # could be made more precise.
+    m = re.search(rb"^(?:.*: )?ABI: '(.+)'$", line)
+    if m is None:
+        print(f"WARNING: Could not parse ABI from: {line!r}")
+        return None
+    match m.group(1).decode("utf-8"):
+        case "arm":
+            return "armeabi-v7a"
+        case "arm64":
+            return "arm64-v8a"
+        case _ as abi:
+            return abi
+
+
 def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
     ndk_root, ndk_bin, host_tag = get_ndk_paths()
     symbolize_cmd = [
@@ -594,7 +676,7 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
 
     try:
         tmp_dir = TmpDir()
-        symbol_source = DirectorySymbolSource(
+        symbol_source = SymbolSource.from_path(
             symbol_dir, elf_reader, Path(tmp_dir.get_directory())
         )
         symbolize_proc = subprocess.Popen(
@@ -605,6 +687,7 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
         banner = b"*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***"
         in_crash = False
         saw_frame = False
+        abi: str | None = None
         for line in trace_input:
             line = line.rstrip()
 
@@ -618,13 +701,19 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
             for tag in [b"Build fingerprint:", b"Abort message:"]:
                 if tag in line:
                     sys.stdout.buffer.write(line[line.find(tag) :])
-                    print(flush=True)
+                    sys.stdout.buffer.write(b"\n")
+                    sys.stdout.buffer.flush()
                     continue
 
-            frame_info = FrameInfo.from_line(line)
+            if b"ABI: " in line:
+                abi = parse_abi_from_line(line)
+                continue
+
+            frame_info = FrameInfo.from_line(line, abi)
             if not frame_info:
                 if saw_frame:
                     in_crash = False
+                    abi = None
                     print("Crash dump is completed\n", flush=True)
                 continue
 
