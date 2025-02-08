@@ -134,9 +134,8 @@ class SymbolSource(ABC):
 class ElfSymbolSource(SymbolSource):
     """An ELF file containing debug symbols."""
 
-    def __init__(self, path: Path, display_path: str, elf_reader: ElfReader) -> None:
+    def __init__(self, path: Path, elf_reader: ElfReader) -> None:
         self.path = path
-        self.display_path = display_path
         self.elf_reader = elf_reader
 
     @cached_property
@@ -208,9 +207,7 @@ class ApkSymbolSource(SymbolSource):
                 # the code responsible for it much less messy, but requires some
                 # additional plumbing.
                 frame_info.fixup_unknown_elf_file(elf_file_path)
-            assert frame_info.elf_file is not None
-            display_elf_file = f"{self.path}!{frame_info.elf_file.name}"
-            source = ElfSymbolSource(elf_file_path, display_elf_file, self.elf_reader)
+            source = ElfSymbolSource(elf_file_path, self.elf_reader)
             if (provider := source.find_providing_elf_file(frame_info)) is not None:
                 return provider
             return None
@@ -256,9 +253,9 @@ class DirectorySymbolSource(SymbolSource):
                 container_sources.append(path)
                 continue
 
-            provider = ElfSymbolSource(
-                path, str(path), self.elf_reader
-            ).find_providing_elf_file(frame_info)
+            provider = ElfSymbolSource(path, self.elf_reader).find_providing_elf_file(
+                frame_info
+            )
             if provider is not None:
                 self._cache_result(frame_info, provider)
                 return provider
@@ -655,6 +652,7 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
             sys.stdout.buffer.write(out_line)
             indent = (out_line.find(b"(") + 1) * b" "
             if not elf_file:
+                sys.stdout.buffer.flush()
                 continue
             value = b'"%s" 0x%s\n' % (elf_file, frame_info.pc)
             symbolize_proc.stdin.write(value)
@@ -665,6 +663,7 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
                     break
                 # TODO: rewrite file names base on a source path?
                 sys.stdout.buffer.write(b"%s%s\n" % (indent, symbolizer_output))
+            sys.stdout.buffer.flush()
     finally:
         trace_input.close()
         tmp_dir.delete()
@@ -675,6 +674,14 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
             symbolize_proc.stdout.close()
             symbolize_proc.kill()
             symbolize_proc.wait()
+
+
+def verbosity_to_log_level(verbosity: int) -> logging._Level:
+    if verbosity >= 2:
+        return logging.DEBUG
+    if verbosity == 1:
+        return logging.INFO
+    return logging.WARNING
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -700,7 +707,17 @@ def main(argv: list[str] | None = None) -> None:
         type=argparse.FileType("rb"),
         help="input filename",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        dest="verbosity",
+        action="count",
+        default=0,
+        help="increase verbosity",
+    )
     args = parser.parse_args(argv)
+
+    logging.basicConfig(level=verbosity_to_log_level(args.verbosity))
 
     if not os.path.exists(args.symbol_dir):
         sys.exit("{} does not exist!\n".format(args.symbol_dir))
