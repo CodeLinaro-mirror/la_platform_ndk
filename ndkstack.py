@@ -32,7 +32,7 @@ import tempfile
 import zipfile
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
-from contextlib import ExitStack, closing, contextmanager
+from contextlib import closing, contextmanager
 from functools import cached_property
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
@@ -51,8 +51,8 @@ class TmpDir:
     def __init__(self) -> None:
         self._tmp_dir: Path | None = None
 
-    def delete(self) -> None:
-        if self._tmp_dir:
+    def close(self) -> None:
+        if self._tmp_dir is not None:
             shutil.rmtree(self._tmp_dir)
 
     def get_directory(self) -> Path:
@@ -725,15 +725,11 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
     ndk_root, ndk_bin, host_tag = get_ndk_paths()
     elf_reader = get_elf_reader(ndk_root, ndk_bin, host_tag)
 
-    with ExitStack() as exit_stack:
-        tmp_dir = TmpDir()
-        exit_stack.callback(tmp_dir.delete)
-        exit_stack.enter_context(closing(trace_input))
-
-        symbolizer = exit_stack.enter_context(
-            LlvmSymbolizer.launch(ndk_root, ndk_bin, host_tag)
-        )
-
+    with (
+        LlvmSymbolizer.launch(ndk_root, ndk_bin, host_tag) as symbolizer,
+        closing(TmpDir()) as tmp_dir,
+        closing(trace_input),
+    ):
         symbol_source = CachingSymbolSource(
             SymbolSource.from_path(
                 symbol_dir, elf_reader, Path(tmp_dir.get_directory())
