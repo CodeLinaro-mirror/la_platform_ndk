@@ -16,7 +16,6 @@
 #
 """Unittests for ndk-stack.py"""
 import unittest
-from collections import defaultdict
 from pathlib import Path, PurePosixPath
 from unittest import mock
 from unittest.mock import Mock, patch
