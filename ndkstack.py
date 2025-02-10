@@ -31,6 +31,8 @@ import sys
 import tempfile
 import zipfile
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import ExitStack, closing, contextmanager
 from functools import cached_property
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
@@ -644,6 +646,53 @@ def get_elf_reader(ndk_root: Path, ndk_bin: Path, host_tag: str) -> ElfReader:
     return NullElfReader()
 
 
+class Symbolizer(ABC):
+    @abstractmethod
+    def symbolize(self, elf_file: Path, pc: bytes) -> Iterator[bytes]:
+        """Yields symbolized lines for the address in the given file."""
+
+
+class LlvmSymbolizer(Symbolizer):
+    def __init__(self, proc: subprocess.Popen[bytes]) -> None:
+        self.proc = proc
+
+    @staticmethod
+    @contextmanager
+    def launch(
+        ndk_root: Path, ndk_bin: Path, host_tag: str
+    ) -> Iterator[LlvmSymbolizer]:
+        proc = subprocess.Popen(
+            [
+                str(find_llvm_symbolizer(ndk_root, ndk_bin, host_tag)),
+                "--demangle",
+                "--functions=linkage",
+                "--inlines",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+        )
+        assert proc.stdout is not None
+        assert proc.stdin is not None
+        with closing(proc.stdin), closing(proc.stdout):
+            try:
+                yield LlvmSymbolizer(proc)
+            finally:
+                proc.kill()
+                proc.wait()
+
+    def symbolize(self, elf_file: Path, pc: bytes) -> Iterator[bytes]:
+        assert self.proc.stdin is not None
+        assert self.proc.stdout is not None
+        value = b'"%s" 0x%s\n' % (elf_file, pc)
+        self.proc.stdin.write(value)
+        self.proc.stdin.flush()
+        while True:
+            symbolizer_output = self.proc.stdout.readline().rstrip()
+            if not symbolizer_output:
+                break
+            yield symbolizer_output
+
+
 def parse_abi_from_line(line: bytes) -> str | None:
     """Parses the ABI line in the crash log.
 
@@ -674,27 +723,23 @@ def parse_abi_from_line(line: bytes) -> str | None:
 
 def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
     ndk_root, ndk_bin, host_tag = get_ndk_paths()
-    symbolize_cmd = [
-        str(find_llvm_symbolizer(ndk_root, ndk_bin, host_tag)),
-        "--demangle",
-        "--functions=linkage",
-        "--inlines",
-    ]
     elf_reader = get_elf_reader(ndk_root, ndk_bin, host_tag)
-    symbolize_proc = None
 
-    try:
+    with ExitStack() as exit_stack:
         tmp_dir = TmpDir()
+        exit_stack.callback(tmp_dir.delete)
+        exit_stack.enter_context(closing(trace_input))
+
+        symbolizer = exit_stack.enter_context(
+            LlvmSymbolizer.launch(ndk_root, ndk_bin, host_tag)
+        )
+
         symbol_source = CachingSymbolSource(
             SymbolSource.from_path(
                 symbol_dir, elf_reader, Path(tmp_dir.get_directory())
             )
         )
-        symbolize_proc = subprocess.Popen(
-            symbolize_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE
-        )
-        assert symbolize_proc.stdin is not None
-        assert symbolize_proc.stdout is not None
+
         banner = b"*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***"
         in_crash = False
         saw_frame = False
@@ -754,26 +799,10 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
             if not elf_file:
                 sys.stdout.buffer.flush()
                 continue
-            value = b'"%s" 0x%s\n' % (elf_file, frame_info.pc)
-            symbolize_proc.stdin.write(value)
-            symbolize_proc.stdin.flush()
-            while True:
-                symbolizer_output = symbolize_proc.stdout.readline().rstrip()
-                if not symbolizer_output:
-                    break
+            for symbolized_line in symbolizer.symbolize(elf_file, frame_info.pc):
                 # TODO: rewrite file names base on a source path?
-                sys.stdout.buffer.write(b"%s%s\n" % (indent, symbolizer_output))
+                sys.stdout.buffer.write(b"%s%s\n" % (indent, symbolized_line))
             sys.stdout.buffer.flush()
-    finally:
-        trace_input.close()
-        tmp_dir.delete()
-        if symbolize_proc:
-            assert symbolize_proc.stdin is not None
-            assert symbolize_proc.stdout is not None
-            symbolize_proc.stdin.close()
-            symbolize_proc.stdout.close()
-            symbolize_proc.kill()
-            symbolize_proc.wait()
 
 
 def verbosity_to_log_level(verbosity: int) -> logging._Level:
