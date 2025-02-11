@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 #
 # Copyright (C) 2019 The Android Open Source Project
 #
@@ -18,84 +17,95 @@
 
 import os.path
 import subprocess
-import unittest
 from pathlib import Path
+
+import pytest
 
 import ndk.ext.subprocess
 import ndk.paths
-import ndk.toolchains
 from ndk.hosts import Host
+from ndk.toolchains import ClangToolchain
+from ndkstack import App as NdkStackApp
 
 THIS_DIR = Path(__file__).parent.resolve()
 INPUTS_DIR = THIS_DIR / "files"
 
 
-class SystemTests(unittest.TestCase):
-    """Complete system test of ndk-stack.py script."""
-
-    def setUp(self) -> None:
-        self.maxDiff = None
-
-        ndk_path = ndk.paths.get_install_path()
-        self.assertTrue(
-            ndk_path.exists(),
-            f"{ndk_path} does not exist. Build the NDK before running this test.",
-        )
-
-        ndk_stack = ndk_path / "ndk-stack"
-        if Host.current() is Host.Windows64:
-            ndk_stack = ndk_stack.with_suffix(".bat")
-        self.ndk_stack = ndk_stack
-
-    def system_test(
-        self, backtrace_file: str, expected_file: str, symbol_dir: Path | None = None
-    ) -> None:
-        if symbol_dir is None:
-            symbol_dir = INPUTS_DIR
-
-        proc = subprocess.run(
-            [
-                self.ndk_stack,
-                "-s",
-                str(symbol_dir),
-                "-i",
-                os.path.join(INPUTS_DIR, backtrace_file),
-            ],
-            check=True,
-            capture_output=True,
-        )
-
-        # Read the expected output.
-        file_name = os.path.join(INPUTS_DIR, expected_file)
-        with open(file_name, "rb") as exp_file:
-            expected = exp_file.read()
-        expected = expected.replace(b"SYMBOL_DIR", str(symbol_dir).encode("utf-8"))
-        self.assertEqual(expected.decode("utf-8"), proc.stdout.decode("utf-8"))
-
-    def test_all_stacks(self) -> None:
-        self.system_test("backtrace.txt", "expected.txt")
-
-    def test_multiple_crashes(self) -> None:
-        self.system_test("multiple.txt", "expected_multiple.txt")
-
-    def test_hwasan(self) -> None:
-        self.system_test("hwasan.txt", "expected_hwasan.txt")
-
-    def test_invalid_unicode(self) -> None:
-        with ndk.ext.subprocess.verbose_subprocess_errors():
-            self.system_test(
-                "invalid_unicode_log.txt", "expected_invalid_unicode_log.txt"
-            )
-
-    def test_symbols_from_zip(self) -> None:
-        """Tests that symbols can be found in native-debug-symbols.zip."""
-        with ndk.ext.subprocess.verbose_subprocess_errors():
-            self.system_test(
-                "zipped_symbols_log.txt",
-                "zipped_symbols_expected.txt",
-                symbol_dir=INPUTS_DIR / "native-debug-symbols.zip",
-            )
+TEST_CONFIGS: list[tuple[str, str, Path]] = [
+    ("backtrace.txt", "expected.txt", INPUTS_DIR),
+    ("multiple.txt", "expected_multiple.txt", INPUTS_DIR),
+    ("hwasan.txt", "expected_hwasan.txt", INPUTS_DIR),
+    ("invalid_unicode_log.txt", "expected_invalid_unicode_log.txt", INPUTS_DIR),
+    (
+        "zipped_symbols_log.txt",
+        "zipped_symbols_expected.txt",
+        INPUTS_DIR / "native-debug-symbols.zip",
+    ),
+]
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.parametrize("trace_file,golden_file,symbol_source_path", TEST_CONFIGS)
+def test_golden_files(
+    trace_file: str,
+    golden_file: str,
+    symbol_source_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """Tests that the sample input traces produce the expected outputs.
+
+    These tests are the same as test_with_built_ndk, but because they test via import of
+    ndkstack rather than by shelling out to the built ndk-stack, they're much quicker
+    and failure messages will be less cluttered.
+    """
+    trace_path = INPUTS_DIR / trace_file
+    with trace_path.open("rb") as input_file:
+        NdkStackApp(
+            input_file,
+            symbol_source_path,
+            llvm_tools_bin=ClangToolchain.path_for_host(Host.current()) / "bin",
+        ).run()
+    captured = capsys.readouterr()
+
+    expected = (INPUTS_DIR / golden_file).read_text()
+    expected = expected.replace("SYMBOL_DIR", str(symbol_source_path))
+    assert captured.out == expected
+
+
+@pytest.mark.requires_ndk
+@pytest.mark.parametrize("trace_file,golden_file,symbol_source_path", TEST_CONFIGS)
+def test_with_built_ndk(
+    trace_file: str, golden_file: str, symbol_source_path: Path
+) -> None:
+    """Runs the same tests as test_golden_files via the final ndk-stack binary.
+
+    This test catches any issues with the packaging of ndk-stack itself. When avoiding
+    the cost of an ndk-stack rebuild during development (that is, editing the Python
+    source and running the tests without an intermediate ./checkbuild.py), this test
+    will likely fail even if the other test passes because the two are out of sync. When
+    developing in this manner, the test can be skipped to avoid the clutter from test
+    failures by passing `-m "not requires_ndk"` to pytest. Be sure to build and run
+    without that flag before submitting though.
+    """
+    ndk_path = ndk.paths.get_install_path()
+    if not ndk_path.exists():
+        pytest.fail(f"{ndk_path} does not exist")
+
+    ndk_stack = ndk_path / "ndk-stack"
+    if Host.current() is Host.Windows64:
+        ndk_stack = ndk_stack.with_suffix(".bat")
+
+    proc = subprocess.run(
+        [
+            ndk_stack,
+            "-s",
+            str(symbol_source_path),
+            "-i",
+            os.path.join(INPUTS_DIR, trace_file),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    expected = (INPUTS_DIR / golden_file).read_bytes()
+    expected = expected.replace(b"SYMBOL_DIR", str(symbol_source_path).encode("utf-8"))
+    assert expected == proc.stdout

@@ -31,6 +31,8 @@ import sys
 import tempfile
 import zipfile
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from functools import cached_property
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
@@ -49,8 +51,8 @@ class TmpDir:
     def __init__(self) -> None:
         self._tmp_dir: Path | None = None
 
-    def delete(self) -> None:
-        if self._tmp_dir:
+    def close(self) -> None:
+        if self._tmp_dir is not None:
             shutil.rmtree(self._tmp_dir)
 
     def get_directory(self) -> Path:
@@ -96,18 +98,6 @@ class Readelf(ElfReader):
             # Most likely the file isn't an ELF file. We don't really care why it fails
             # though. Just ignore it and move on.
             return False
-
-
-class NullElfReader(ElfReader):
-    def build_id(self, path: Path) -> bytes | None:
-        return None
-
-    def has_debug_info(self, path: Path) -> bool:
-        # We can't actually know, but the NullElfReader is used in cases where readelf
-        # can't be found. In that case, it's better to attempt to get symbols from a
-        # file that might have debug info than to reject all files, which would result
-        # in never being able to symbolize anything.
-        return True
 
 
 class SymbolSource(ABC):
@@ -403,46 +393,23 @@ def get_ndk_paths() -> tuple[Path, Path, str]:
     return ndk_root, ndk_bin, ndk_host_tag
 
 
-def find_llvm_symbolizer(ndk_root: Path, ndk_bin: Path, ndk_host_tag: str) -> Path:
-    """Finds the NDK llvm-symbolizer(1) binary.
-
-    Returns: An absolute path to llvm-symbolizer(1).
-    """
-
+def find_llvm_tools_bin(ndk_root: Path, ndk_bin: Path, host_tag: str) -> Path:
     llvm_symbolizer = "llvm-symbolizer" + EXE_SUFFIX
-    path = (
-        ndk_root / "toolchains/llvm/prebuilt" / ndk_host_tag / "bin" / llvm_symbolizer
+    ndk_rooted_path = (
+        ndk_root / "toolchains/llvm/prebuilt" / host_tag / "bin" / llvm_symbolizer
     )
-    if path.exists():
-        return path
+    if ndk_rooted_path.exists():
+        return ndk_rooted_path.parent
 
-    # Okay, maybe we're a standalone toolchain? (https://github.com/android-ndk/ndk/issues/931)
-    # In that case, llvm-symbolizer and ndk-stack are conveniently in
-    # the same directory...
-    if (path := ndk_bin / llvm_symbolizer).exists():
-        return path
-    raise OSError("Unable to find llvm-symbolizer")
-
-
-def find_readelf(ndk_root: Path, ndk_bin: Path, ndk_host_tag: str) -> Path | None:
-    """Finds the NDK readelf(1) binary.
-
-    Returns: An absolute path to readelf(1).
-    """
-
-    readelf = "llvm-readelf" + EXE_SUFFIX
-    m = re.match("^[^-]+-(.*)", ndk_host_tag)
-    if m:
-        # Try as if this is not a standalone install.
-        path = ndk_root / "toolchains/llvm/prebuilt" / ndk_host_tag / "bin" / readelf
-        if path.exists():
-            return path
-
-    # Might be a standalone toolchain.
-    path = ndk_bin / readelf
-    if path.exists():
-        return path
-    return None
+    # Okay, maybe we're a standalone toolchain?
+    # (https://github.com/android-ndk/ndk/issues/931)
+    # In that case, the tools and ndk-stack are conveniently in the same directory...
+    same_dir_path = ndk_bin / llvm_symbolizer
+    if same_dir_path.exists():
+        return same_dir_path.parent
+    raise RuntimeError(
+        f"Unable to find LLVM tools directory. Neither {ndk_rooted_path} nor {same_dir_path} exists"
+    )
 
 
 def get_build_id(readelf_path: Path, elf_file: Path) -> bytes | None:
@@ -638,10 +605,50 @@ class FrameInfo:
             )
 
 
-def get_elf_reader(ndk_root: Path, ndk_bin: Path, host_tag: str) -> ElfReader:
-    if (readelf_path := find_readelf(ndk_root, ndk_bin, host_tag)) is not None:
-        return Readelf(readelf_path)
-    return NullElfReader()
+class Symbolizer(ABC):
+    @abstractmethod
+    def symbolize(self, elf_file: Path, pc: bytes) -> Iterator[bytes]:
+        """Yields symbolized lines for the address in the given file."""
+
+
+class LlvmSymbolizer(Symbolizer):
+    def __init__(self, proc: subprocess.Popen[bytes]) -> None:
+        self.proc = proc
+
+    @staticmethod
+    @contextmanager
+    def launch(tools_bin: Path) -> Iterator[LlvmSymbolizer]:
+        llvm_symbolizer = tools_bin / f"llvm-symbolizer{EXE_SUFFIX}"
+        proc = subprocess.Popen(
+            [
+                str(llvm_symbolizer),
+                "--demangle",
+                "--functions=linkage",
+                "--inlines",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+        )
+        assert proc.stdout is not None
+        assert proc.stdin is not None
+        with closing(proc.stdin), closing(proc.stdout):
+            try:
+                yield LlvmSymbolizer(proc)
+            finally:
+                proc.kill()
+                proc.wait()
+
+    def symbolize(self, elf_file: Path, pc: bytes) -> Iterator[bytes]:
+        assert self.proc.stdin is not None
+        assert self.proc.stdout is not None
+        value = b'"%s" 0x%s\n' % (elf_file, pc)
+        self.proc.stdin.write(value)
+        self.proc.stdin.flush()
+        while True:
+            symbolizer_output = self.proc.stdout.readline().rstrip()
+            if not symbolizer_output:
+                break
+            yield symbolizer_output
 
 
 def parse_abi_from_line(line: bytes) -> str | None:
@@ -672,29 +679,12 @@ def parse_abi_from_line(line: bytes) -> str | None:
             return abi
 
 
-def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
-    ndk_root, ndk_bin, host_tag = get_ndk_paths()
-    symbolize_cmd = [
-        str(find_llvm_symbolizer(ndk_root, ndk_bin, host_tag)),
-        "--demangle",
-        "--functions=linkage",
-        "--inlines",
-    ]
-    elf_reader = get_elf_reader(ndk_root, ndk_bin, host_tag)
-    symbolize_proc = None
+class TraceSymbolizer:
+    def __init__(self, symbol_source: SymbolSource, symbolizer: Symbolizer) -> None:
+        self.symbol_source = symbol_source
+        self.symbolizer = symbolizer
 
-    try:
-        tmp_dir = TmpDir()
-        symbol_source = CachingSymbolSource(
-            SymbolSource.from_path(
-                symbol_dir, elf_reader, Path(tmp_dir.get_directory())
-            )
-        )
-        symbolize_proc = subprocess.Popen(
-            symbolize_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE
-        )
-        assert symbolize_proc.stdin is not None
-        assert symbolize_proc.stdout is not None
+    def symbolize_trace(self, trace_input: BinaryIO) -> None:
         banner = b"*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***"
         in_crash = False
         saw_frame = False
@@ -735,7 +725,7 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
                 saw_frame = True
 
             try:
-                elf_file = symbol_source.find_providing_elf_file(frame_info)
+                elf_file = self.symbol_source.find_providing_elf_file(frame_info)
             except IOError:
                 elf_file = None
 
@@ -754,26 +744,49 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
             if not elf_file:
                 sys.stdout.buffer.flush()
                 continue
-            value = b'"%s" 0x%s\n' % (elf_file, frame_info.pc)
-            symbolize_proc.stdin.write(value)
-            symbolize_proc.stdin.flush()
-            while True:
-                symbolizer_output = symbolize_proc.stdout.readline().rstrip()
-                if not symbolizer_output:
-                    break
+            for symbolized_line in self.symbolizer.symbolize(elf_file, frame_info.pc):
                 # TODO: rewrite file names base on a source path?
-                sys.stdout.buffer.write(b"%s%s\n" % (indent, symbolizer_output))
+                sys.stdout.buffer.write(b"%s%s\n" % (indent, symbolized_line))
             sys.stdout.buffer.flush()
-    finally:
-        trace_input.close()
-        tmp_dir.delete()
-        if symbolize_proc:
-            assert symbolize_proc.stdin is not None
-            assert symbolize_proc.stdout is not None
-            symbolize_proc.stdin.close()
-            symbolize_proc.stdout.close()
-            symbolize_proc.kill()
-            symbolize_proc.wait()
+
+
+class App:
+    def __init__(
+        self,
+        trace_input: BinaryIO,
+        symbol_source_path: Path,
+        llvm_tools_bin: Path | None = None,
+    ) -> None:
+        self.trace_input = trace_input
+        self.symbol_source_path = symbol_source_path
+        self.llvm_tools_bin = llvm_tools_bin
+
+    def run(self) -> None:
+        if self.llvm_tools_bin is None:
+            ndk_root, ndk_bin, host_tag = get_ndk_paths()
+            tools_bin = find_llvm_tools_bin(ndk_root, ndk_bin, host_tag)
+        else:
+            tools_bin = self.llvm_tools_bin
+
+        # We could be tolerant of a missing readelf binary by returning a default
+        # implementation of the ElfReader interface which would allow us to still
+        # symbolize things as long as we can find matches without build IDs, but the
+        # only way we'd end up in that state is if someone for some reason deletes the
+        # llvm-readelf binary from their bin directory, because the same directory is
+        # also the source of llvm-symbolizer, and there's no reasonable fault tolerant
+        # fallback for a missing llvm-symbolizer.
+        elf_reader = Readelf(tools_bin / f"llvm-readelf{EXE_SUFFIX}")
+
+        with (
+            LlvmSymbolizer.launch(tools_bin) as symbolizer,
+            closing(TmpDir()) as tmp_dir,
+        ):
+            symbol_source = CachingSymbolSource(
+                SymbolSource.from_path(
+                    self.symbol_source_path, elf_reader, Path(tmp_dir.get_directory())
+                )
+            )
+            TraceSymbolizer(symbol_source, symbolizer).symbolize_trace(self.trace_input)
 
 
 def verbosity_to_log_level(verbosity: int) -> logging._Level:
@@ -822,7 +835,8 @@ def main(argv: list[str] | None = None) -> None:
     if not os.path.exists(args.symbol_dir):
         sys.exit("{} does not exist!\n".format(args.symbol_dir))
 
-    symbolize_trace(args.input, args.symbol_dir)
+    with closing(args.input) as trace_input:
+        App(trace_input, args.symbol_dir).run()
 
 
 if __name__ == "__main__":
