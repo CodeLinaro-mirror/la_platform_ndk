@@ -721,21 +721,12 @@ def parse_abi_from_line(line: bytes) -> str | None:
             return abi
 
 
-def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
-    ndk_root, ndk_bin, host_tag = get_ndk_paths()
-    elf_reader = get_elf_reader(ndk_root, ndk_bin, host_tag)
+class TraceSymbolizer:
+    def __init__(self, symbol_source: SymbolSource, symbolizer: Symbolizer) -> None:
+        self.symbol_source = symbol_source
+        self.symbolizer = symbolizer
 
-    with (
-        LlvmSymbolizer.launch(ndk_root, ndk_bin, host_tag) as symbolizer,
-        closing(TmpDir()) as tmp_dir,
-        closing(trace_input),
-    ):
-        symbol_source = CachingSymbolSource(
-            SymbolSource.from_path(
-                symbol_dir, elf_reader, Path(tmp_dir.get_directory())
-            )
-        )
-
+    def symbolize_trace(self, trace_input: BinaryIO) -> None:
         banner = b"*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***"
         in_crash = False
         saw_frame = False
@@ -776,7 +767,7 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
                 saw_frame = True
 
             try:
-                elf_file = symbol_source.find_providing_elf_file(frame_info)
+                elf_file = self.symbol_source.find_providing_elf_file(frame_info)
             except IOError:
                 elf_file = None
 
@@ -795,10 +786,31 @@ def symbolize_trace(trace_input: BinaryIO, symbol_dir: Path) -> None:
             if not elf_file:
                 sys.stdout.buffer.flush()
                 continue
-            for symbolized_line in symbolizer.symbolize(elf_file, frame_info.pc):
+            for symbolized_line in self.symbolizer.symbolize(elf_file, frame_info.pc):
                 # TODO: rewrite file names base on a source path?
                 sys.stdout.buffer.write(b"%s%s\n" % (indent, symbolized_line))
             sys.stdout.buffer.flush()
+
+
+class App:
+    def __init__(self, trace_input: BinaryIO, symbol_source_path: Path) -> None:
+        self.trace_input = trace_input
+        self.symbol_source_path = symbol_source_path
+
+    def run(self) -> None:
+        ndk_root, ndk_bin, host_tag = get_ndk_paths()
+        elf_reader = get_elf_reader(ndk_root, ndk_bin, host_tag)
+
+        with (
+            LlvmSymbolizer.launch(ndk_root, ndk_bin, host_tag) as symbolizer,
+            closing(TmpDir()) as tmp_dir,
+        ):
+            symbol_source = CachingSymbolSource(
+                SymbolSource.from_path(
+                    self.symbol_source_path, elf_reader, Path(tmp_dir.get_directory())
+                )
+            )
+            TraceSymbolizer(symbol_source, symbolizer).symbolize_trace(self.trace_input)
 
 
 def verbosity_to_log_level(verbosity: int) -> logging._Level:
@@ -847,7 +859,8 @@ def main(argv: list[str] | None = None) -> None:
     if not os.path.exists(args.symbol_dir):
         sys.exit("{} does not exist!\n".format(args.symbol_dir))
 
-    symbolize_trace(args.input, args.symbol_dir)
+    with closing(args.input) as trace_input:
+        App(trace_input, args.symbol_dir).run()
 
 
 if __name__ == "__main__":
