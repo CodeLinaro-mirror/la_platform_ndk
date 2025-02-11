@@ -95,7 +95,8 @@ ignore-imports = true
 # prepends the directory of the test (which in those cases would be named
 # ndkstack or ndkgdb...) to sys.path, so `import ndkstack` finds the test
 # package rather than the module under test.
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib --strict-markers"
+markers = ["requires_ndk: marks a test that requires the NDK to be built"]
 xfail_strict = true
 
 [build-system]
