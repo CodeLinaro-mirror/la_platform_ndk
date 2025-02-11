@@ -100,18 +100,6 @@ class Readelf(ElfReader):
             return False
 
 
-class NullElfReader(ElfReader):
-    def build_id(self, path: Path) -> bytes | None:
-        return None
-
-    def has_debug_info(self, path: Path) -> bool:
-        # We can't actually know, but the NullElfReader is used in cases where readelf
-        # can't be found. In that case, it's better to attempt to get symbols from a
-        # file that might have debug info than to reject all files, which would result
-        # in never being able to symbolize anything.
-        return True
-
-
 class SymbolSource(ABC):
     """A source of debug symbols.
 
@@ -405,46 +393,23 @@ def get_ndk_paths() -> tuple[Path, Path, str]:
     return ndk_root, ndk_bin, ndk_host_tag
 
 
-def find_llvm_symbolizer(ndk_root: Path, ndk_bin: Path, ndk_host_tag: str) -> Path:
-    """Finds the NDK llvm-symbolizer(1) binary.
-
-    Returns: An absolute path to llvm-symbolizer(1).
-    """
-
+def find_llvm_tools_bin(ndk_root: Path, ndk_bin: Path, host_tag: str) -> Path:
     llvm_symbolizer = "llvm-symbolizer" + EXE_SUFFIX
-    path = (
-        ndk_root / "toolchains/llvm/prebuilt" / ndk_host_tag / "bin" / llvm_symbolizer
+    ndk_rooted_path = (
+        ndk_root / "toolchains/llvm/prebuilt" / host_tag / "bin" / llvm_symbolizer
     )
-    if path.exists():
-        return path
+    if ndk_rooted_path.exists():
+        return ndk_rooted_path.parent
 
-    # Okay, maybe we're a standalone toolchain? (https://github.com/android-ndk/ndk/issues/931)
-    # In that case, llvm-symbolizer and ndk-stack are conveniently in
-    # the same directory...
-    if (path := ndk_bin / llvm_symbolizer).exists():
-        return path
-    raise OSError("Unable to find llvm-symbolizer")
-
-
-def find_readelf(ndk_root: Path, ndk_bin: Path, ndk_host_tag: str) -> Path | None:
-    """Finds the NDK readelf(1) binary.
-
-    Returns: An absolute path to readelf(1).
-    """
-
-    readelf = "llvm-readelf" + EXE_SUFFIX
-    m = re.match("^[^-]+-(.*)", ndk_host_tag)
-    if m:
-        # Try as if this is not a standalone install.
-        path = ndk_root / "toolchains/llvm/prebuilt" / ndk_host_tag / "bin" / readelf
-        if path.exists():
-            return path
-
-    # Might be a standalone toolchain.
-    path = ndk_bin / readelf
-    if path.exists():
-        return path
-    return None
+    # Okay, maybe we're a standalone toolchain?
+    # (https://github.com/android-ndk/ndk/issues/931)
+    # In that case, the tools and ndk-stack are conveniently in the same directory...
+    same_dir_path = ndk_bin / llvm_symbolizer
+    if same_dir_path.exists():
+        return same_dir_path.parent
+    raise RuntimeError(
+        f"Unable to find LLVM tools directory. Neither {ndk_rooted_path} nor {same_dir_path} exists"
+    )
 
 
 def get_build_id(readelf_path: Path, elf_file: Path) -> bytes | None:
@@ -640,12 +605,6 @@ class FrameInfo:
             )
 
 
-def get_elf_reader(ndk_root: Path, ndk_bin: Path, host_tag: str) -> ElfReader:
-    if (readelf_path := find_readelf(ndk_root, ndk_bin, host_tag)) is not None:
-        return Readelf(readelf_path)
-    return NullElfReader()
-
-
 class Symbolizer(ABC):
     @abstractmethod
     def symbolize(self, elf_file: Path, pc: bytes) -> Iterator[bytes]:
@@ -658,12 +617,11 @@ class LlvmSymbolizer(Symbolizer):
 
     @staticmethod
     @contextmanager
-    def launch(
-        ndk_root: Path, ndk_bin: Path, host_tag: str
-    ) -> Iterator[LlvmSymbolizer]:
+    def launch(tools_bin: Path) -> Iterator[LlvmSymbolizer]:
+        llvm_symbolizer = tools_bin / f"llvm-symbolizer{EXE_SUFFIX}"
         proc = subprocess.Popen(
             [
-                str(find_llvm_symbolizer(ndk_root, ndk_bin, host_tag)),
+                str(llvm_symbolizer),
                 "--demangle",
                 "--functions=linkage",
                 "--inlines",
@@ -793,16 +751,34 @@ class TraceSymbolizer:
 
 
 class App:
-    def __init__(self, trace_input: BinaryIO, symbol_source_path: Path) -> None:
+    def __init__(
+        self,
+        trace_input: BinaryIO,
+        symbol_source_path: Path,
+        llvm_tools_bin: Path | None = None,
+    ) -> None:
         self.trace_input = trace_input
         self.symbol_source_path = symbol_source_path
+        self.llvm_tools_bin = llvm_tools_bin
 
     def run(self) -> None:
-        ndk_root, ndk_bin, host_tag = get_ndk_paths()
-        elf_reader = get_elf_reader(ndk_root, ndk_bin, host_tag)
+        if self.llvm_tools_bin is None:
+            ndk_root, ndk_bin, host_tag = get_ndk_paths()
+            tools_bin = find_llvm_tools_bin(ndk_root, ndk_bin, host_tag)
+        else:
+            tools_bin = self.llvm_tools_bin
+
+        # We could be tolerant of a missing readelf binary by returning a default
+        # implementation of the ElfReader interface which would allow us to still
+        # symbolize things as long as we can find matches without build IDs, but the
+        # only way we'd end up in that state is if someone for some reason deletes the
+        # llvm-readelf binary from their bin directory, because the same directory is
+        # also the source of llvm-symbolizer, and there's no reasonable fault tolerant
+        # fallback for a missing llvm-symbolizer.
+        elf_reader = Readelf(tools_bin / f"llvm-readelf{EXE_SUFFIX}")
 
         with (
-            LlvmSymbolizer.launch(ndk_root, ndk_bin, host_tag) as symbolizer,
+            LlvmSymbolizer.launch(tools_bin) as symbolizer,
             closing(TmpDir()) as tmp_dir,
         ):
             symbol_source = CachingSymbolSource(

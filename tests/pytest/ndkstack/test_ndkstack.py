@@ -26,7 +26,7 @@ import pytest
 import ndkstack
 
 
-class TestFindLlvmSymbolizer:
+class TestFindLlvmToolsBin:
     def test_find_in_prebuilt(self, tmp_path: Path) -> None:
         ndk_path = tmp_path / "ndk"
         symbolizer_path = (
@@ -36,8 +36,8 @@ class TestFindLlvmSymbolizer:
         symbolizer_path.parent.mkdir(parents=True)
         symbolizer_path.touch()
         assert (
-            ndkstack.find_llvm_symbolizer(ndk_path, ndk_path / "bin", "linux-x86_64")
-            == symbolizer_path
+            ndkstack.find_llvm_tools_bin(ndk_path, ndk_path / "bin", "linux-x86_64")
+            == symbolizer_path.parent
         )
 
     def test_find_in_standalone_toolchain(self, tmp_path: Path) -> None:
@@ -47,42 +47,13 @@ class TestFindLlvmSymbolizer:
         symbolizer_path.parent.mkdir(parents=True)
         symbolizer_path.touch()
         assert (
-            ndkstack.find_llvm_symbolizer(ndk_path, ndk_path / "bin", "linux-x86_64")
-            == symbolizer_path
+            ndkstack.find_llvm_tools_bin(ndk_path, ndk_path / "bin", "linux-x86_64")
+            == symbolizer_path.parent
         )
 
     def test_not_found(self, tmp_path: Path) -> None:
-        with pytest.raises(OSError, match="Unable to find llvm-symbolizer"):
-            ndkstack.find_llvm_symbolizer(tmp_path, tmp_path / "bin", "linux-x86_64")
-
-
-class TestFindReadelf:
-    def test_find_in_prebuilt(self, tmp_path: Path) -> None:
-        ndk_path = tmp_path / "ndk"
-        readelf_path = (
-            ndk_path / "toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-        )
-        readelf_path = readelf_path.with_suffix(ndkstack.EXE_SUFFIX)
-        readelf_path.parent.mkdir(parents=True)
-        readelf_path.touch()
-        assert (
-            ndkstack.find_readelf(ndk_path, ndk_path / "bin", "linux-x86_64")
-            == readelf_path
-        )
-
-    def test_find_in_standalone_toolchain(self, tmp_path: Path) -> None:
-        ndk_path = tmp_path / "ndk"
-        readelf_path = ndk_path / "bin/llvm-readelf"
-        readelf_path = readelf_path.with_suffix(ndkstack.EXE_SUFFIX)
-        readelf_path.parent.mkdir(parents=True)
-        readelf_path.touch()
-        assert (
-            ndkstack.find_readelf(ndk_path, ndk_path / "bin", "linux-x86_64")
-            == readelf_path
-        )
-
-    def test_not_found(self, tmp_path: Path) -> None:
-        assert ndkstack.find_readelf(tmp_path, tmp_path / "bin", "linux-x86_64") is None
+        with pytest.raises(RuntimeError, match="Unable to find LLVM tools directory"):
+            ndkstack.find_llvm_tools_bin(tmp_path, tmp_path / "bin", "linux-x86_64")
 
 
 class FrameTests(unittest.TestCase):
