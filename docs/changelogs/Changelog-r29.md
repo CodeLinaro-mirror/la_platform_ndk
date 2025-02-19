@@ -24,6 +24,9 @@ directly, see the [build system maintainers guide].
   name of the file is not present in the trace.
 - [Issue 2078]: ndk-stack now accepts a [native-debug-symbols.zip] file for the
   `--sym` argument as an alternative to a directory.
+- [Issue 2109]: `llvm-lipo` has been removed. This tool is only useful for
+  building macOS binaries but was mistakenly included in the NDK.
 
 [Issue 2078]: https://github.com/android/ndk/issues/2078
+[Issue 2109]: https://github.com/android/ndk/issues/2109
 [native-debug-symbols.zip]: https://support.google.com/googleplay/android-developer/answer/9848633?hl=en
