@@ -20,9 +20,6 @@ import subprocess
 from pathlib import Path
 from typing import List
 
-import ndk.paths
-from ndk.hosts import Host
-
 
 def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
     """Create a compressed tarball.
@@ -62,63 +59,6 @@ def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
                 str(base_dir),
             ]
         )
-
-
-def make_brtar(
-    base_name: Path, root_dir: Path, base_dir: Path, preserve_symlinks: bool
-) -> Path:
-    """Create a Brotli-compressed tarball.
-
-    Arguments have the same name and meaning as shutil.make_archive.
-
-    Args:
-        base_name: Base name of archive to create. ".tar.br" will be appended.
-        root_dir: Directory that's the root of the archive.
-        base_dir: Directory relative to root_dir to archive.
-    """
-    if not root_dir.is_dir():
-        raise RuntimeError(f"Not a directory: {root_dir}")
-    if not (root_dir / base_dir).is_dir():
-        raise RuntimeError(f"Not a directory: {root_dir}/{base_dir}")
-
-    br_file = base_name.with_suffix(".tar.br")
-
-    if os.name == "nt":
-        raise NotImplementedError
-    cmd = ["tar"]
-    if not preserve_symlinks:
-        cmd.append("--dereference")
-    cmd.extend(
-        [
-            "--use-compress-program",
-            str(
-                ndk.paths.android_path(
-                    "prebuilts/build-tools/{host}-x86/bin/brotli".format(
-                        host=Host.current().value
-                    )
-                )
-            )
-            # Choice of 7 as quality parameter based on the following data:
-            #
-            # q | size (MB) | compression time relative to -q 0
-            # --+-----------+----------------------------------
-            # 0 | 622       |  0:00
-            # 2 | 514       |  0:10
-            # 5 | 447       |  1:14
-            # 6 | 435       |  1:48
-            # 7 | 401       |  3:24
-            # 8 | 393       |  5:35
-            # 9 | 388       | 10:37
-            + " -q 7",
-            "-cf",
-            str(br_file),
-            "-C",
-            str(root_dir),
-            str(base_dir),
-        ]
-    )
-    subprocess.check_call(cmd)
-    return br_file
 
 
 # For (un)zipping archives on Unix-like systems, the "zip" and "unzip" commands

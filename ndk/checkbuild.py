@@ -227,19 +227,6 @@ def make_app_bundle(
     )
 
 
-def make_brtar(
-    worker: ndk.workqueue.Worker,
-    base_name: Path,
-    root_dir: Path,
-    base_dir: Path,
-    preserve_symlinks: bool,
-) -> None:
-    worker.status = "Packaging .tar.br"
-    ndk.archive.make_brtar(
-        base_name, root_dir, base_dir, preserve_symlinks=preserve_symlinks
-    )
-
-
 def make_zip(
     worker: ndk.workqueue.Worker,
     base_name: Path,
@@ -280,13 +267,6 @@ def package_ndk(
                 build_number,
                 out_dir,
             )
-        workqueue.add_task(
-            make_brtar,
-            package_path,
-            ndk_dir.parent,
-            Path(ndk_dir.name),
-            preserve_symlinks=(host != Host.Windows64),
-        )
         workqueue.add_task(
             make_zip,
             package_path,
