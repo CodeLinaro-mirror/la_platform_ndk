@@ -20,7 +20,7 @@ import subprocess
 from pathlib import Path
 
 import ndk.config
-from ndk.platforms import ALL_API_LEVELS
+from ndk.platforms import ALL_API_LEVELS, MAX_API_LEVEL
 
 from .abis import Abi, abi_to_triple, clang_target, iter_abis_for_api
 from .paths import ANDROID_DIR, NDK_DIR
@@ -41,51 +41,6 @@ class CrtObjectBuilder:
         """Returns the path to the given LLVM tool."""
         return self.llvm_path / "bin" / tool
 
-    def get_build_cmd(
-        self,
-        dst: Path,
-        srcs: list[Path],
-        api: int,
-        abi: Abi,
-        build_number: int,
-    ) -> list[str]:
-        """Returns the build command for creating a CRT object."""
-        libc_includes = ANDROID_DIR / "bionic/libc"
-        arch_common_includes = libc_includes / "arch-common/bionic"
-
-        cc = self.llvm_tool("clang")
-
-        args = [
-            str(cc),
-            "-target",
-            clang_target(abi, api),
-            "--sysroot",
-            str(self.PREBUILTS_PATH / "sysroot"),
-            "-fuse-ld=lld",
-            f"-I{libc_includes}",
-            f"-I{arch_common_includes}",
-            f"-DPLATFORM_SDK_VERSION={api}",
-            f'-DABI_NDK_VERSION="{ndk.config.release}"',
-            f'-DABI_NDK_BUILD_NUMBER="{build_number}"',
-            "-O2",
-            "-fpic",
-            "-Wl,-r",
-            "-no-pie",
-            "-nostdlib",
-            "-Wa,--noexecstack",
-            "-Wl,-z,noexecstack",
-            "-o",
-            str(dst),
-        ] + [str(src) for src in srcs]
-
-        if abi == Abi("arm64-v8a"):
-            args.append("-mbranch-protection=standard")
-
-        if dst.name == "crtbegin_static.o":
-            args.append("-DCRTBEGIN_STATIC")
-
-        return args
-
     def check_elf_note(self, obj_file: Path) -> None:
         """Verifies that the object file contains the expected note."""
         # readelf is a cross platform tool, so arch doesn't matter.
@@ -96,63 +51,86 @@ class CrtObjectBuilder:
         if "Android" not in out:
             raise RuntimeError(f"{obj_file} does not contain NDK ELF note")
 
-    def build_crt_object(
-        self,
-        dst: Path,
-        srcs: list[Path],
-        api: int,
-        abi: Abi,
-        build_number: int,
-        defines: list[str],
+    def build_crt_brand(
+        self, dest: Path, api: int, abi: Abi, build_number: int
     ) -> None:
-        cc_args = self.get_build_cmd(dst, srcs, api, abi, build_number)
-        cc_args.extend(defines)
+        cc_args = [
+            str(self.llvm_tool("clang")),
+            "-target",
+            clang_target(abi, api),
+            f"-DPLATFORM_SDK_VERSION={api}",
+            f'-DABI_NDK_VERSION="{ndk.config.release}"',
+            f'-DABI_NDK_BUILD_NUMBER="{build_number}"',
+            "-fpic",
+            "-Wl,-r",
+            "-no-pie",
+            "-nostdlib",
+            "-o",
+            str(dest),
+            str(NDK_DIR / "sources/crt/crtbrand.S"),
+        ]
 
         print(f"Running: {shlex.join(cc_args)}")
         subprocess.check_call(cc_args)
 
+    def strip_platform_brand(self, dest: Path, obj_to_strip: Path) -> None:
+        strip_args = [
+            str(self.llvm_tool("llvm-strip")),
+            "--no-strip-all",
+            "--remove-section=.note.android.ident",
+            "-o",
+            str(dest),
+            str(obj_to_strip),
+        ]
+
+        print(f"Running: {shlex.join(strip_args)}")
+        subprocess.check_call(strip_args)
+
+    def brand_object(self, dest: Path, obj_to_brand: Path, crtbrand_o: Path) -> None:
+        ld_args = [
+            str(self.llvm_tool("ld.lld")),
+            "-r",
+            "-o",
+            str(dest),
+            str(obj_to_brand),
+            str(crtbrand_o),
+        ]
+
+        print(f"Running: {shlex.join(ld_args)}")
+        subprocess.check_call(ld_args)
+
     def build_crt_objects(
         self,
-        dst_dir: Path,
+        build_dir: Path,
         api: int,
         abi: Abi,
         build_number: int,
     ) -> None:
-        src_dir = ANDROID_DIR / "bionic/libc/arch-common/bionic"
-        crt_brand = NDK_DIR / "sources/crt/crtbrand.S"
+        crt_brand_o = build_dir / "crtbrand.o"
+        self.build_crt_brand(crt_brand_o, api, abi, build_number)
+        branded_objects = {"crtbegin_dynamic.o", "crtbegin_so.o", "crtbegin_static.o"}
+        for name_to_brand in branded_objects:
+            is_crtbegin_static = name_to_brand == "crtbegin_static.o"
+            if is_crtbegin_static and api != MAX_API_LEVEL:
+                # Only the max API level has a crtbegin_static.o because there's only a
+                # libc.a for that API level.
+                continue
 
-        objects = {
-            "crtbegin_dynamic.o": [
-                src_dir / "crtbegin.c",
-                crt_brand,
-            ],
-            "crtbegin_so.o": [
-                src_dir / "crtbegin_so.c",
-                crt_brand,
-            ],
-            "crtbegin_static.o": [
-                src_dir / "crtbegin.c",
-                crt_brand,
-            ],
-            "crtend_android.o": [
-                src_dir / "crtend.S",
-            ],
-            "crtend_so.o": [
-                src_dir / "crtend_so.S",
-            ],
-        }
+            object_dir = self.PREBUILTS_PATH / "sysroot/usr/lib" / abi_to_triple(abi)
+            if not is_crtbegin_static:
+                object_dir /= str(api)
 
-        for name, srcs in objects.items():
-            dst_path = dst_dir / name
-            defs = []
-            if name == "crtbegin_static.o":
-                # libc.a is always the latest version, so ignore the API level
-                # setting for crtbegin_static.
-                defs.append("-D_FORCE_CRT_ATFORK")
-            self.build_crt_object(dst_path, srcs, api, abi, build_number, defs)
-            if name.startswith("crtbegin"):
-                self.check_elf_note(dst_path)
-            self.artifacts.append((abi, api, dst_path))
+            path_to_brand = object_dir / name_to_brand
+            branded = build_dir / name_to_brand
+
+            # The CRT objects from the platform have their own brands applied which are
+            # redundant, and possibly inconsistent, with ours. Strip
+            intermediate = branded.with_suffix(".o.stripped")
+            self.strip_platform_brand(intermediate, path_to_brand)
+
+            self.brand_object(branded, intermediate, crt_brand_o)
+            self.check_elf_note(branded)
+            self.artifacts.append((abi, api, branded))
 
     def build(self) -> None:
         self.artifacts = []
