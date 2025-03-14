@@ -23,7 +23,6 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 import textwrap
 from collections.abc import Iterator
 from pathlib import Path
@@ -125,6 +124,21 @@ def remove_or_rename_platform_directory(path: Path) -> None:
         return
     except ValueError:
         remove_or_rename_codename_if_unknown(version, path)
+
+
+def relocate_static_crt_objects(install_path: Path) -> None:
+    """Installs the static CRT objects to the latest API level.
+
+    The static CRT objects are only built for the current (10000) API level, since
+    libc.a is also built that way. libc.a gets installed into the API-generic library
+    directory by soong, but the CRT objects get installed to the "current" directory
+    instead. This moves those "current" CRT objects to the same directory as libc.a.
+    """
+    for abi_dir in (install_path / "sysroot/usr/lib").iterdir():
+        crt_name = "crtbegin_static.o"
+        source = abi_dir / "current" / crt_name
+        dest = abi_dir / crt_name
+        source.rename(dest)
 
 
 def remove_and_rename_platforms_to_match_metadata(install_path: Path) -> None:
@@ -252,6 +266,7 @@ class App:
         # input to Platforms. Shift the NOTICE into the sysroot directory.
         rename(install_path / "NOTICE", install_path / "sysroot/NOTICE")
 
+        relocate_static_crt_objects(install_path)
         remove_and_rename_platforms_to_match_metadata(install_path)
 
         check_call(["git", "add", str(install_path)])
