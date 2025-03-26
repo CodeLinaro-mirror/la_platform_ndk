@@ -21,15 +21,6 @@ import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
-from rich.progress import (
-    BarColumn,
-    Progress,
-    TaskID,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
-
 from ndk.abis import Abi
 from ndk.test.deviceproviders.acid import AcidDeviceProvider
 from ndk.test.devices import Device, DeviceFleet, find_devices
@@ -49,14 +40,28 @@ def logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-async def acquire_device_with_progress(
-    task_id: TaskID, provider: AcidDeviceProvider, abi: Abi, api: int
-) -> tuple[TaskID, Device | None]:
-    return task_id, await provider.acquire_device(abi, api)
-
-
 async def acquire_missing_devices(fleet: DeviceFleet) -> None:
     """Attempts to acquire missing devices and add them to the fleet."""
+    try:
+        from rich.progress import (  # pylint: disable=import-outside-toplevel
+            BarColumn,
+            Progress,
+            TaskID,
+            TextColumn,
+            TimeElapsedColumn,
+        )
+    except ModuleNotFoundError:
+        print(
+            "Development packages not installed, cannot auto-acquire devices. Run "
+            "`poetry install`"
+        )
+        return
+
+    async def acquire_device_with_progress(
+        task_id: TaskID, provider: AcidDeviceProvider, abi: Abi, api: int
+    ) -> tuple[TaskID, Device | None]:
+        return task_id, await provider.acquire_device(abi, api)
+
     missing_shards = fleet.get_missing()
     if not missing_shards:
         return
