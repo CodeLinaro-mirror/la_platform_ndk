@@ -15,11 +15,24 @@
 #
 """Runner for device tests."""
 
+import asyncio
 import logging
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
-from ndk.test.devices import DeviceFleet, find_devices
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
+
+from ndk.abis import Abi
+from ndk.test.deviceproviders.acid import AcidDeviceProvider
+from ndk.test.devices import Device, DeviceFleet, find_devices
 from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.spec import BuildConfiguration, TestSpec
@@ -34,6 +47,53 @@ from .testplanrunner import TestPlanRunner
 def logger() -> logging.Logger:
     """Returns the module logger."""
     return logging.getLogger(__name__)
+
+
+async def acquire_device_with_progress(
+    task_id: TaskID, provider: AcidDeviceProvider, abi: Abi, api: int
+) -> tuple[TaskID, Device | None]:
+    return task_id, await provider.acquire_device(abi, api)
+
+
+async def acquire_missing_devices(fleet: DeviceFleet) -> None:
+    """Attempts to acquire missing devices and add them to the fleet."""
+    missing_shards = fleet.get_missing()
+    if not missing_shards:
+        return
+
+    if shutil.which("acid") is None:
+        print("Cannot auto-acquire missing devices because acid is not installed")
+        return
+
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TimeElapsedColumn(),
+    )
+    with progress:
+        provider = AcidDeviceProvider()
+        missing_configs: set[tuple[Abi, int]] = set()
+        for shard in missing_shards:
+            for abi in shard.abis:
+                missing_configs.add((abi, shard.version))
+
+        tasks = []
+        for missing_config in missing_configs:
+            abi, api = missing_config
+            task_id = progress.add_task(
+                f"Leasing android-{api} {abi} from ACID", total=None
+            )
+            tasks.append(
+                asyncio.create_task(
+                    acquire_device_with_progress(task_id, provider, abi, api)
+                )
+            )
+
+        for device_task in asyncio.as_completed(tasks):
+            task_id, device = await device_task
+            if device is not None:
+                fleet.add_device(device)
+            progress.update(task_id, completed=True, total=1)
 
 
 def verify_have_all_requested_devices(fleet: DeviceFleet) -> bool:
@@ -91,7 +151,7 @@ class TestRunner:
     def has_tests(self) -> bool:
         return self.test_plan.has_tests()
 
-    def run(self, clean_devices: bool, require_all_devices: bool) -> str | None:
+    async def run(self, clean_devices: bool, require_all_devices: bool) -> str | None:
         # For finding devices, we have a list of devices we want to run on in our
         # config file. If we did away with this list, we could instead run every
         # test on every compatible device, but in the event of multiple similar
@@ -114,6 +174,8 @@ class TestRunner:
         try:
             with self.timing_report.timed("Device discovery"):
                 fleet = find_devices(self.test_spec.devices, workqueue)
+
+            await acquire_missing_devices(fleet)
 
             if require_all_devices:
                 if not verify_have_all_requested_devices(fleet):

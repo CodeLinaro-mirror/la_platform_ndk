@@ -27,6 +27,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from rich.logging import RichHandler
+
 import ndk.ansi
 import ndk.archive
 import ndk.ext.subprocess
@@ -285,7 +287,7 @@ def rebuild_tests(
     return True
 
 
-def run_tests(args: argparse.Namespace) -> Results:
+async def run_tests(args: argparse.Namespace) -> Results:
     results = Results()
 
     if not args.test_dir.exists():
@@ -334,14 +336,16 @@ def run_tests(args: argparse.Namespace) -> Results:
     if args.show_test_stats:
         print_test_stats(runner.test_plan)
 
-    if (error := runner.run(args.clean_device, args.require_all_devices)) is not None:
+    if (
+        error := await runner.run(args.clean_device, args.require_all_devices)
+    ) is not None:
         results.failed(error)
     else:
         results.passed()
     return results
 
 
-def main() -> None:
+async def main() -> None:
     args = parse_args()
 
     ensure_python_environment()
@@ -349,14 +353,14 @@ def main() -> None:
     log_levels = [logging.WARNING, logging.INFO, logging.DEBUG]
     verbosity = min(args.verbose, len(log_levels) - 1)
     log_level = log_levels[verbosity]
-    logging.basicConfig(level=log_level)
+    logging.basicConfig(level=log_level, handlers=[RichHandler(level=log_level)])
 
     python_packages = args.ndk / "python-packages"
     site.addsitedir(python_packages)
 
     total_timer = Timer()
     with total_timer:
-        results = run_tests(args)
+        results = await run_tests(args)
 
     if results.success is None:
         raise RuntimeError("run_tests returned without indicating success or failure.")
@@ -375,7 +379,3 @@ def main() -> None:
     ndk.notify.toast(subject, body)
 
     sys.exit(not good)
-
-
-if __name__ == "__main__":
-    main()

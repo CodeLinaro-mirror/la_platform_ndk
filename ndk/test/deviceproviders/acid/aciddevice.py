@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 #
-# Copyright (C) 2017 The Android Open Source Project
+# Copyright (C) 2025 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,14 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""Shortcut for ndk/run_tests.py.
+from ndk.test.devices import Device
 
-This would normally be installed by pip, but we want to keep this in place in
-the source directory since the buildbots expect it to be here.
-"""
-import asyncio
 
-import ndk.run_tests
-
-if __name__ == "__main__":
-    asyncio.run(ndk.run_tests.main())
+class AcidDevice(Device):
+    def __init__(self, session_id: str, serial: str, precache: bool = False) -> None:
+        super().__init__(serial, precache)
+        self.session_id = session_id

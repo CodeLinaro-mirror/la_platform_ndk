@@ -26,6 +26,7 @@ gdbrunner = { path = "../development/python-packages/gdbrunner" }
 adb = { path = "../development/python-packages/adb" }
 pytest-cov = "^4.1.0"
 rich = "^13.9.2"
+pytest-asyncio = "^0.25.3"
 
 [tool.black]
 # The default includes "build", which excludes both build/ and tests/build.
@@ -96,6 +97,7 @@ ignore-imports = true
 # ndkstack or ndkgdb...) to sys.path, so `import ndkstack` finds the test
 # package rather than the module under test.
 addopts = "--import-mode=importlib --strict-markers"
+asyncio_mode = "auto"
 markers = ["requires_ndk: marks a test that requires the NDK to be built"]
 xfail_strict = true
 
