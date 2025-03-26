@@ -27,7 +27,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from rich.logging import RichHandler
+try:
+    from rich.logging import RichHandler
+
+    CAN_USE_RICH = True
+except ModuleNotFoundError:
+    CAN_USE_RICH = False
 
 import ndk.ansi
 import ndk.archive
@@ -353,7 +358,10 @@ async def main() -> None:
     log_levels = [logging.WARNING, logging.INFO, logging.DEBUG]
     verbosity = min(args.verbose, len(log_levels) - 1)
     log_level = log_levels[verbosity]
-    logging.basicConfig(level=log_level, handlers=[RichHandler(level=log_level)])
+    handlers = None
+    if CAN_USE_RICH:
+        handlers = [RichHandler(level=log_level)]
+    logging.basicConfig(level=log_level, handlers=handlers)
 
     python_packages = args.ndk / "python-packages"
     site.addsitedir(python_packages)
