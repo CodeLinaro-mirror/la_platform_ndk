@@ -13,51 +13,15 @@
 # limitations under the License.
 #
 
-# this file is used to prepare the NDK to build with the arm64 clang toolchain
-# any number of source files
-#
-# its purpose is to define (or re-define) templates used to build
-# various sources into target object files, libraries or executables.
-#
-# Note that this file may end up being parsed several times in future
-# revisions of the NDK.
-#
-
-#
-# Override the toolchain prefix
-#
-
-LLVM_TOOLCHAIN_PREBUILT_ROOT := $(call get-toolchain-root,llvm)
-LLVM_TOOLCHAIN_PREFIX := $(LLVM_TOOLCHAIN_PREBUILT_ROOT)/bin/
-
 TOOLCHAIN_NAME := aarch64-linux-android
-BINUTILS_ROOT := $(call get-binutils-root,$(NDK_ROOT),$(TOOLCHAIN_NAME))
-TOOLCHAIN_ROOT := $(call get-toolchain-root,$(TOOLCHAIN_NAME)-4.9)
-TOOLCHAIN_PREFIX := $(TOOLCHAIN_ROOT)/bin/$(TOOLCHAIN_NAME)-
-
-TARGET_CC := $(LLVM_TOOLCHAIN_PREFIX)clang$(HOST_EXEEXT)
-TARGET_CXX := $(LLVM_TOOLCHAIN_PREFIX)clang++$(HOST_EXEEXT)
-
 LLVM_TRIPLE := aarch64-none-linux-android
 
-TARGET_CFLAGS := \
-    -gcc-toolchain $(call host-path,$(TOOLCHAIN_ROOT)) \
-    -target $(LLVM_TRIPLE) \
-    -ffunction-sections \
-    -funwind-tables \
-    -fstack-protector-strong \
-    -fpic \
-    -Wno-invalid-command-line-argument \
-    -Wno-unused-command-line-argument \
-    -no-canonical-prefixes \
+TARGET_TOOLCHAIN_ARCH_LIB_DIR := aarch64
+TARGET_ASAN_BASENAME := libclang_rt.asan-aarch64-android.so
+TARGET_TSAN_BASENAME := libclang_rt.tsan-aarch64-android.so
+TARGET_UBSAN_BASENAME := libclang_rt.ubsan_standalone-aarch64-android.so
 
-# Always enable debug info. We strip binaries when needed.
-TARGET_CFLAGS += -g
-
-TARGET_LDFLAGS += \
-    -gcc-toolchain $(call host-path,$(TOOLCHAIN_ROOT)) \
-    -target $(LLVM_TRIPLE) \
-    -no-canonical-prefixes \
+TARGET_CFLAGS := -fpic
 
 TARGET_arm64_release_CFLAGS := \
     -O2 \

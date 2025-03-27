@@ -1,0 +1,106 @@
+[tool.poetry]
+name = "ndk"
+version = "0.1.0"
+description = "Android NDK build and test environment."
+authors = ["The Android Open Source Project"]
+license = "Apache-2.0"
+
+[tool.poetry.scripts]
+test-release = "ndk.tools.testrelease:App.main"
+update-prebuilt-ndk = "ndk.tools.ndkgitprebuilts:App.main"
+update-sysroot = "ndk.tools.updatesysroot:App.main"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[tool.poetry.group.dev.dependencies]
+click = "^8.1.3"
+fetchartifact = { path = "../development/python-packages/fetchartifact", develop = true }
+aiohttp = "^3.8.4"
+mypy = "^1.9.0"
+pylint = "^3.1.0"
+pytest = "^8.1.1"
+black = "^24.2.0"
+isort = "^5.13.2"
+gdbrunner = { path = "../development/python-packages/gdbrunner" }
+adb = { path = "../development/python-packages/adb" }
+pytest-cov = "^4.1.0"
+rich = "^13.9.2"
+pytest-asyncio = "^0.25.3"
+
+[tool.black]
+# The default includes "build", which excludes both build/ and tests/build.
+exclude = """
+/(
+  |.git
+  |.venv
+  |venv
+  |.mypy_cache
+)/
+"""
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+check_untyped_defs = true
+# TODO: Investigate fixing type signatures for mocks.
+# disallow_any_decorated = True
+# This flags a *lot* of things since things like json.load return Any.
+# disallow_any_expr = True
+disallow_any_generics = true
+disallow_untyped_decorators = true
+disallow_untyped_defs = true
+follow_imports = "silent"
+implicit_reexport = false
+namespace_packages = true
+no_implicit_optional = true
+show_error_codes = true
+strict_equality = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_configs = true
+warn_unused_ignores = true
+disallow_any_unimported = true
+disallow_subclassing_any = true
+exclude = [
+  "^tests/",
+  "^build/tools/make_standalone_toolchain.py$",
+  "^parse_elfnote.py$",
+  "^scripts/update_dac.py$",
+  "^scripts/gen_release_table.py$",
+  "^scripts/create_windows_instance.py$",
+]
+
+[tool.pylint]
+jobs = 0
+disable = [
+  "assignment-from-none",
+  "consider-using-f-string",
+  "consider-using-with",
+  "duplicate-code",
+  "fixme,design",
+  "invalid-name",
+  "line-too-long",           # black handles this
+  "locally-disabled",
+  "missing-docstring",
+  "too-many-lines",
+]
+good-names = ["i", "j", "k", "ex", "Run", "_"]
+dummy-variables-rgx = "_"
+ignore-imports = true
+
+[tool.pytest.ini_options]
+# Required for testing ndkstack.py and ndkgdb.py, since the default import mode
+# prepends the directory of the test (which in those cases would be named
+# ndkstack or ndkgdb...) to sys.path, so `import ndkstack` finds the test
+# package rather than the module under test.
+addopts = "--import-mode=importlib --strict-markers"
+asyncio_mode = "auto"
+markers = ["requires_ndk: marks a test that requires the NDK to be built"]
+xfail_strict = true
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

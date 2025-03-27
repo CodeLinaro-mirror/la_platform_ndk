@@ -1,0 +1,32 @@
+# Changelog
+
+Report issues to [GitHub].
+
+For Android Studio issues, go to https://b.android.com and file a bug using the
+Android Studio component, not the NDK component.
+
+If you're a build system maintainer that needs to use the tools in the NDK
+directly, see the [build system maintainers guide].
+
+[GitHub]: https://github.com/android/ndk/issues
+[build system maintainers guide]:
+  https://android.googlesource.com/platform/ndk/+/master/docs/BuildSystemMaintainers.md
+
+## Announcements
+
+## Changes
+
+- Updated LLVM to clang-r547379. See `clang_source_info.md` in the toolchain
+  directory for version information.
+- ndk-stack will now find symbols in files with matching build IDs even if the
+  file names do not match.
+- ndk-stack will now find symbols in files with matching build IDs even if the
+  name of the file is not present in the trace.
+- [Issue 2078]: ndk-stack now accepts a [native-debug-symbols.zip] file for the
+  `--sym` argument as an alternative to a directory.
+- [Issue 2109]: `llvm-lipo` has been removed. This tool is only useful for
+  building macOS binaries but was mistakenly included in the NDK.
+
+[Issue 2078]: https://github.com/android/ndk/issues/2078
+[Issue 2109]: https://github.com/android/ndk/issues/2109
+[native-debug-symbols.zip]: https://support.google.com/googleplay/android-developer/answer/9848633?hl=en

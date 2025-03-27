@@ -19,4 +19,4 @@
 #error INET_ADDRSTRLEN is not defined by <inet/in.h>
 #endif
 
-char dummy_in;
+char in;

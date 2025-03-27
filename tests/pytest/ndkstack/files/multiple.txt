@@ -1,0 +1,38 @@
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+Build fingerprint: 'Android/aosp_taimen/taimen:R/QT/eng.cferri.20191008.133647:userdebug/test-keys'
+Revision: 'rev_a'
+ABI: 'arm64'
+Timestamp: 2019-10-10 21:15:11+0000
+pid: 11305, tid: 11305, name: bionic-unit-tes  >>> /data/nativetest64/bionic-unit-tests/bionic-unit-tests <<<
+uid: 0
+signal 6 (SIGABRT), code -1 (SI_QUEUE), fault addr --------
+Abort message: 'FORTIFY: strlcat: prevented 5-byte write into 4-byte buffer'
+    x0  0000000000000000  x1  0000000000002c29  x2  0000000000000006  x3  0000007ff9c2d730
+    x4  0000000000000000  x5  0000000000000000  x6  0000000000000000  x7  0000000000000020
+    x8  00000000000000f0  x9  dde593a96684dc0c  x10 0000000000000000  x11 ffffffe0ffffffdf
+    x12 0000000000000018  x13 0000000000000018  x14 000000130f401897  x15 0024eba55cefcafd
+    x16 00000077d5672bd0  x17 00000077d5655a60  x18 00000077d5ace020  x19 00000000000000ac
+    x20 0000000000002c29  x21 00000000000000b2  x22 0000000000002c29  x23 00000000ffffffff
+    x24 00000000000000c3  x25 000000623f623b78  x26 20c49ba5e353f7cf  x27 0000016db7864973
+    x28 000000623f478470  x29 0000007ff9c2d7e0
+    sp  0000007ff9c2d710  lr  00000077d560ac80  pc  00000077d5607f3ec
+
+backtrace:
+      #00 pc 000000000007f3ec  /system/lib64/bootstrap/libc64.so (abort+172) (BuildId: d0080326fbef53980488aedd32b02f5d)
+
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+Build fingerprint: 'Android/aosp_taimen/taimen:R/QT/eng.cferri.20191008.133647:userdebug/test-keys'
+Revision: 'rev_a'
+ABI: 'arm'
+Timestamp: 2019-10-14 21:10:05+0000
+pid: 12664, tid: 12664, name: bionic-unit-tes  >>> /data/nativetest/bionic-unit-tests/bionic-unit-tests <<<
+uid: 0
+signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x4
+Cause: null pointer dereference
+    r0  00000000  r1  00000000  r2  00000001  r3  00000000
+    r4  f266d088  r5  f266d088  r6  ff8d3584  r7  f28ec114
+    r8  00000001  r9  00000000  r10 f2680208  r11 f242ba88
+    ip  b2659378  sp  ff8d3540  lr  b22bb98f  pc  f28a167e
+
+backtrace:
+      #00 pc 00063b76  /system/lib/bootstrap/libc.so (__sem_timedwait(sem_t*, timespec const*, bool)+68) (BuildId: cd193f754b8535bc662dd794f63b7891)

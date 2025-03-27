@@ -1,5 +1,3 @@
-// Check that including <cstdlib> doesn't result in a build error
-// with API level 3.
 #include <cassert>
 #include <cctype>
 #include <cerrno>
@@ -19,6 +17,10 @@
 #include <stl_pair.h>
 #include <typeinfo>
 #include <utility>
+
+class C {
+  C(std::nullptr_t ) {}
+};
 
 int main(void) {
   return 0;

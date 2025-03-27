@@ -23,6 +23,10 @@ include $(BUILD_SYSTEM)/definitions-utils.mk
 include $(BUILD_SYSTEM)/definitions-host.mk
 include $(BUILD_SYSTEM)/definitions-graph.mk
 
+include $(BUILD_SYSTEM)/version.mk
+
+ndk-major-at-least = $(if $(filter $(true),$(call gte,$(NDK_MAJOR),$1)),true,false)
+
 # -----------------------------------------------------------------------------
 # Macro    : this-makefile
 # Returns  : the name of the current Makefile in the inclusion stack
@@ -35,7 +39,9 @@ this-makefile = $(lastword $(MAKEFILE_LIST))
 # Returns  : the name of the last parsed Android.mk file
 # Usage    : $(local-makefile)
 # -----------------------------------------------------------------------------
-local-makefile = $(lastword $(filter %Android.mk,$(MAKEFILE_LIST)))
+_last_android_mk = $(lastword $(filter %Android.mk,$(MAKEFILE_LIST)))
+_last_non_ndk_makefile = $(lastword $(filter-out $(NDK_ROOT)%,$(MAKEFILE_LIST)))
+local-makefile = $(if $(_last_android_mk),$(_last_android_mk),$(_last_non_ndk_makefile))
 
 # -----------------------------------------------------------------------------
 # Function : assert-defined
@@ -70,8 +76,15 @@ check-required-vars = $(foreach __varname,$1,\
 # The list of default C++ extensions supported by GCC.
 default-c++-extensions := .cc .cp .cxx .cpp .CPP .c++ .C
 
-# The list of default RS extensions supported by llvm-rs-cc
-default-rs-extensions := .rs .fs
+# -----------------------------------------------------------------------------
+# Function : generate-empty-file
+# Arguments: 1: file path
+# Usage    : $(call generate-empty-file,<path>)
+# Rationale: This function writes an empty file. Use this function as a
+#            portable replacement for "touch" to update an empty timestamp
+#            file.
+# -----------------------------------------------------------------------------
+generate-empty-file = $(HOST_ECHO_N) "" > $1
 
 # -----------------------------------------------------------------------------
 # Function : generate-dir
@@ -137,161 +150,8 @@ generate-file-dir = $(eval $(call ev-generate-file-dir,$1))
 #
 # -----------------------------------------------------------------------------
 
-# Helper functions because the GNU Make $(word ...) function does
-# not accept a 0 index, so we need to bump any of these to 1 when
-# we find them.
-#
-index-is-zero = $(filter 0 00 000 0000 00000 000000 0000000,$1)
-bump-0-to-1 = $(if $(call index-is-zero,$1),1,$1)
-
--test-bump-0-to-1 = \
-  $(call test-expect,$(call bump-0-to-1))\
-  $(call test-expect,1,$(call bump-0-to-1,0))\
-  $(call test-expect,1,$(call bump-0-to-1,1))\
-  $(call test-expect,2,$(call bump-0-to-1,2))\
-  $(call test-expect,1,$(call bump-0-to-1,00))\
-  $(call test-expect,1,$(call bump-0-to-1,000))\
-  $(call test-expect,1,$(call bump-0-to-1,0000))\
-  $(call test-expect,1,$(call bump-0-to-1,00000))\
-  $(call test-expect,1,$(call bump-0-to-1,000000))\
-  $(call test-expect,10,$(call bump-0-to-1,10))\
-  $(call test-expect,100,$(call bump-0-to-1,100))
-
-# Same as $(wordlist ...) except the start index, if 0, is bumped to 1
-index-word-list = $(wordlist $(call bump-0-to-1,$1),$2,$3)
-
--test-index-word-list = \
-  $(call test-expect,,$(call index-word-list,1,1))\
-  $(call test-expect,a b,$(call index-word-list,0,2,a b c d))\
-  $(call test-expect,b c,$(call index-word-list,2,3,a b c d))\
-
-# NOTE: With GNU Make $1 and $(1) are equivalent, which means
-#       that $10 is equivalent to $(1)0, and *not* $(10).
-
-# Used to generate a slice of up to 10 items starting from index $1,
-# If $1 is 0, it will be bumped to 1 (and only 9 items will be printed)
-# $1: start (tenth) index. Can be 0
-# $2: word list
-#
-define list-file-start-gen-10
-	$$(hide) $$(HOST_ECHO_N) "$(call index-word-list,$10,$19,$2) " >> $$@
-endef
-
-# Used to generate a slice of always 10 items starting from index $1
-# $1: start (tenth) index. CANNOT BE 0
-# $2: word list
-define list-file-always-gen-10
-	$$(hide) $$(HOST_ECHO_N) "$(wordlist $10,$19,$2) " >> $$@
-endef
-
-# Same as list-file-always-gen-10, except that the word list might be
-# empty at position $10 (i.e. $(1)0)
-define list-file-maybe-gen-10
-ifneq ($(word $10,$2),)
-	$$(hide) $$(HOST_ECHO_N) "$(wordlist $10,$19,$2) " >> $$@
-endif
-endef
-
-define list-file-start-gen-100
-$(call list-file-start-gen-10,$10,$2)
-$(call list-file-always-gen-10,$11,$2)
-$(call list-file-always-gen-10,$12,$2)
-$(call list-file-always-gen-10,$13,$2)
-$(call list-file-always-gen-10,$14,$2)
-$(call list-file-always-gen-10,$15,$2)
-$(call list-file-always-gen-10,$16,$2)
-$(call list-file-always-gen-10,$17,$2)
-$(call list-file-always-gen-10,$18,$2)
-$(call list-file-always-gen-10,$19,$2)
-endef
-
-define list-file-always-gen-100
-$(call list-file-always-gen-10,$10,$2)
-$(call list-file-always-gen-10,$11,$2)
-$(call list-file-always-gen-10,$12,$2)
-$(call list-file-always-gen-10,$13,$2)
-$(call list-file-always-gen-10,$14,$2)
-$(call list-file-always-gen-10,$15,$2)
-$(call list-file-always-gen-10,$16,$2)
-$(call list-file-always-gen-10,$17,$2)
-$(call list-file-always-gen-10,$18,$2)
-$(call list-file-always-gen-10,$19,$2)
-endef
-
-define list-file-maybe-gen-100
-ifneq ($(word $(call bump-0-to-1,$100),$2),)
-ifneq ($(word $199,$2),)
-$(call list-file-start-gen-10,$10,$2)
-$(call list-file-always-gen-10,$11,$2)
-$(call list-file-always-gen-10,$12,$2)
-$(call list-file-always-gen-10,$13,$2)
-$(call list-file-always-gen-10,$14,$2)
-$(call list-file-always-gen-10,$15,$2)
-$(call list-file-always-gen-10,$16,$2)
-$(call list-file-always-gen-10,$17,$2)
-$(call list-file-always-gen-10,$18,$2)
-$(call list-file-always-gen-10,$19,$2)
-else
-ifneq ($(word $150,$2),)
-$(call list-file-start-gen-10,$10,$2)
-$(call list-file-always-gen-10,$11,$2)
-$(call list-file-always-gen-10,$12,$2)
-$(call list-file-always-gen-10,$13,$2)
-$(call list-file-always-gen-10,$14,$2)
-$(call list-file-maybe-gen-10,$15,$2)
-$(call list-file-maybe-gen-10,$16,$2)
-$(call list-file-maybe-gen-10,$17,$2)
-$(call list-file-maybe-gen-10,$18,$2)
-$(call list-file-maybe-gen-10,$19,$2)
-else
-$(call list-file-start-gen-10,$10,$2)
-$(call list-file-maybe-gen-10,$11,$2)
-$(call list-file-maybe-gen-10,$12,$2)
-$(call list-file-maybe-gen-10,$13,$2)
-$(call list-file-maybe-gen-10,$14,$2)
-endif
-endif
-endif
-endef
-
-define list-file-maybe-gen-1000
-ifneq ($(word $(call bump-0-to-1,$1000),$2),)
-ifneq ($(word $1999,$2),)
-$(call list-file-start-gen-100,$10,$2)
-$(call list-file-always-gen-100,$11,$2)
-$(call list-file-always-gen-100,$12,$2)
-$(call list-file-always-gen-100,$13,$2)
-$(call list-file-always-gen-100,$14,$2)
-$(call list-file-always-gen-100,$15,$2)
-$(call list-file-always-gen-100,$16,$2)
-$(call list-file-always-gen-100,$17,$2)
-$(call list-file-always-gen-100,$18,$2)
-$(call list-file-always-gen-100,$19,$2)
-else
-ifneq ($(word $1500,$2),)
-$(call list-file-start-gen-100,$10,$2)
-$(call list-file-always-gen-100,$11,$2)
-$(call list-file-always-gen-100,$12,$2)
-$(call list-file-always-gen-100,$13,$2)
-$(call list-file-always-gen-100,$14,$2)
-$(call list-file-maybe-gen-100,$15,$2)
-$(call list-file-maybe-gen-100,$16,$2)
-$(call list-file-maybe-gen-100,$17,$2)
-$(call list-file-maybe-gen-100,$18,$2)
-$(call list-file-maybe-gen-100,$19,$2)
-else
-$(call list-file-start-gen-100,$10,$2)
-$(call list-file-maybe-gen-100,$11,$2)
-$(call list-file-maybe-gen-100,$12,$2)
-$(call list-file-maybe-gen-100,$13,$2)
-$(call list-file-maybe-gen-100,$14,$2)
-endif
-endif
-endif
-endef
-
-
 define generate-list-file-ev
+
 __list_file := $2
 
 .PHONY: $$(__list_file).tmp
@@ -299,13 +159,7 @@ __list_file := $2
 $$(call generate-file-dir,$$(__list_file).tmp)
 
 $$(__list_file).tmp:
-	$$(hide) $$(HOST_ECHO_N) "" > $$@
-$(call list-file-maybe-gen-1000,0,$1)
-$(call list-file-maybe-gen-1000,1,$1)
-$(call list-file-maybe-gen-1000,2,$1)
-$(call list-file-maybe-gen-1000,3,$1)
-$(call list-file-maybe-gen-1000,4,$1)
-$(call list-file-maybe-gen-1000,5,$1)
+	$$(file >$$@,$1)
 
 $$(__list_file): $$(__list_file).tmp
 	$$(hide) $$(call host-copy-if-differ,$$@.tmp,$$@)
@@ -374,46 +228,48 @@ link-whole-archive-flags = -Wl,--whole-archive $(call host-path,$1) -Wl,--no-who
 # These are documented by docs/ANDROID-MK.TXT. Exception is LOCAL_MODULE
 #
 modules-LOCALS := \
-    MODULE \
-    MODULE_FILENAME \
-    PATH \
-    SRC_FILES \
-    CPP_EXTENSION \
-    C_INCLUDES \
-    CFLAGS \
-    CONLYFLAGS \
-    CXXFLAGS \
-    CPPFLAGS \
-    ASFLAGS \
-    ASMFLAGS \
-    STATIC_LIBRARIES \
-    WHOLE_STATIC_LIBRARIES \
-    SHARED_LIBRARIES \
-    LDLIBS \
+    ALLOW_MISSING_PREBUILT \
     ALLOW_UNDEFINED_SYMBOLS \
+    ALLOW_UNDEFINED_VERSION_SCRIPT_SYMBOLS \
     ARM_MODE \
     ARM_NEON \
-    DISABLE_NO_EXECUTE \
-    DISABLE_RELRO \
-    DISABLE_FORMAT_STRING_CHECKS \
+    ASFLAGS \
+    ASMFLAGS \
+    BUILT_MODULE_NOT_COPIED \
+    CFLAGS \
+    CLANG_TIDY \
+    CLANG_TIDY_FLAGS \
+    CONLYFLAGS \
+    CPPFLAGS \
+    CPP_EXTENSION \
+    CPP_FEATURES \
+    CXXFLAGS \
+    C_INCLUDES \
     DISABLE_FATAL_LINKER_WARNINGS \
+    DISABLE_FORMAT_STRING_CHECKS \
+    EXPORT_ASMFLAGS \
     EXPORT_CFLAGS \
     EXPORT_CONLYFLAGS \
     EXPORT_CPPFLAGS \
-    EXPORT_ASMFLAGS \
+    EXPORT_C_INCLUDES \
     EXPORT_LDFLAGS \
     EXPORT_LDLIBS \
-    EXPORT_C_INCLUDES \
+    EXPORT_SHARED_LIBRARIES \
+    EXPORT_STATIC_LIBRARIES \
     FILTER_ASM \
-    CPP_FEATURES \
-    SHORT_COMMANDS \
-    BUILT_MODULE_NOT_COPIED \
-    THIN_ARCHIVE \
+    HAS_CPP \
+    LDLIBS \
+    MODULE \
+    MODULE_FILENAME \
+    PATH \
     PCH \
-    RENDERSCRIPT_INCLUDES \
-    RENDERSCRIPT_INCLUDES_OVERRIDE \
-    RENDERSCRIPT_FLAGS \
-    RENDERSCRIPT_TARGET_API
+    SHARED_LIBRARIES \
+    SHORT_COMMANDS \
+    SRC_FILES \
+    STATIC_LIBRARIES \
+    STRIP_MODE \
+    THIN_ARCHIVE \
+    WHOLE_STATIC_LIBRARIES \
 
 # The following are generated by the build scripts themselves
 
@@ -719,6 +575,10 @@ module-get-direct-libs = $(strip \
 # -----------------------------------------------------------------------------
 module-get-all-dependencies = $(call -ndk-mod-get-closure,$1,module-get-depends)
 
+# Same as module-get-all-dependencies, but topologically sorted.
+module-get-all-dependencies-topo = \
+    $(call -ndk-mod-get-topological-depends,$1,module-get-all-dependencies)
+
 # -----------------------------------------------------------------------------
 # Compute the list of all static and shared libraries required to link a
 # given module.
@@ -761,16 +621,42 @@ module-extract-whole-static-libs = $(strip \
   $(_ndk_mod_whole_result))
 
 # Used to recompute all dependencies once all module information has been recorded.
-#
 modules-compute-dependencies = \
     $(foreach __module,$(__ndk_modules),\
         $(call module-compute-depends,$(__module))\
     )
 
+# Recurses though modules imported by $1 to come up with the transitive closure
+# of imports.
+# $1: Module
+# $2: Import type (STATIC_LIBRARIES or SHARED_LIBRARIES)
+module_get_recursive_imports = \
+    $(eval _from_static_libs.$1 := \
+        $(call module-get-listed-export,\
+            $(__ndk_modules.$1.STATIC_LIBRARIES),$2))\
+    $(eval _from_shared_libs.$1 := \
+        $(call module-get-listed-export,\
+            $(__ndk_modules.$1.SHARED_LIBRARIES),$2))\
+    $(eval _from_imports.$1 := \
+        $(foreach _import,$(_from_static_libs.1),\
+            $(call module_get_recursive_imports,$(_import),$2))\
+        $(foreach _import,$(_from_shared_libs.$1),\
+            $(call module_get_recursive_imports,$(_import),$2)))\
+    $(_from_static_libs.$1) $(_from_shared_libs.$1) $(_from_imports.$1)
+
+# Fills __ndk_modules.$1.depends with a list of all the modules that $1 depends
+# on. Note that this runs before import-locals.mk is run (import-locals.mk needs
+# this information), so we have to explicitly check for exported libraries from
+# our dependencies. Imported libraries might in turn export more libraries to
+# us, so do this recursively.
 module-compute-depends = \
     $(call module-add-static-depends,$1,$(__ndk_modules.$1.STATIC_LIBRARIES))\
     $(call module-add-static-depends,$1,$(__ndk_modules.$1.WHOLE_STATIC_LIBRARIES))\
     $(call module-add-shared-depends,$1,$(__ndk_modules.$1.SHARED_LIBRARIES))\
+    $(call module-add-static-depends,$1,\
+        $(call module_get_recursive_imports,$1,STATIC_LIBRARIES))\
+    $(call module-add-shared-depends,$1,\
+        $(call module_get_recursive_imports,$1,SHARED_LIBRARIES))\
 
 module-get-installed = $(__ndk_modules.$1.INSTALLED)
 
@@ -805,24 +691,9 @@ module-get-c++-sources = \
     $(eval __extensions := $(call module-get-c++-extensions,$1))\
     $(filter $(foreach __extension,$(__extensions),%$(__extension)),$(__files))
 
-# Returns true if a module has C++ sources
-#
-module-has-c++-sources = $(strip $(call module-get-c++-sources,$1))
-
-
-# Add C++ dependencies to any module that has C++ sources.
-# $1: list of C++ runtime static libraries (if any)
-# $2: list of C++ runtime shared libraries (if any)
-# $3: list of C++ runtime ldlibs (if any)
-#
-modules-add-c++-dependencies = \
-    $(foreach __module,$(__ndk_modules),\
-        $(if $(call module-has-c++-sources,$(__module)),\
-            $(call ndk_log,Module '$(__module)' has C++ sources)\
-            $(call module-add-c++-deps,$(__module),$1,$2,$3),\
-        )\
-    )
-
+# Returns a non-empty string if a module has C++ sources
+module-has-c++-sources = $(strip $(call module-get-c++-sources,$1) \
+                                 $(filter true,$(__ndk_modules.$1.HAS_CPP)))
 
 # Return the compiler flags used to compile a C++ module
 # Order matters and should match the one used by the build command
@@ -895,21 +766,20 @@ module-has-c++-features = $(strip \
     $(if $(filter $2,$(__cxxflags)),true,)\
     )
 
-# Add standard C++ dependencies to a given module
+# Returns a non-empty string if the module should be linked with clang++ rather
+# than clang.
 #
-# $1: module name
-# $2: list of C++ runtime static libraries (if any)
-# $3: list of C++ runtime shared libraries (if any)
-# $4: list of C++ runtime ldlibs (if any)
-#
-module-add-c++-deps = \
-    $(if $(call strip,$2),$(call ndk_log,Add dependency '$(call strip,$2)' to module '$1'))\
-    $(eval __ndk_modules.$1.STATIC_LIBRARIES += $(2))\
-    $(if $(call strip,$3),$(call ndk_log,Add dependency '$(call strip,$3)' to module '$1'))\
-    $(eval __ndk_modules.$1.SHARED_LIBRARIES += $(3))\
-    $(if $(call strip,$4),$(call ndk_log,Add dependency '$(call strip,$4)' to module '$1'))\
-    $(eval __ndk_modules.$1.LDLIBS += $(4))
-
+# A module should use clang++ iff it has C++ sources itself or if it depends on
+# a static library with C++ sources. We do not need to use clang++ for shared
+# library dependencies.
+module_needs_clangxx = $(strip \
+  $(call module-has-c++-sources,$1)\
+  $(foreach __dep,$(call module-get-all-dependencies,$1),\
+    $(if $(call module-is-static-library,$(__dep)),\
+      $(call module-has-c++-sources,$(__dep))\
+    )\
+  )\
+)
 
 # =============================================================================
 #
@@ -1115,11 +985,13 @@ all-subdir-makefiles = $(call all-makefiles-under,$(call my-dir))
 # 'tags' associated to it. A tag name must not contain space, and its
 # usage can vary.
 #
-# For example, the 'debug' tag is used to sources that must be built
-# in debug mode, the 'arm' tag is used for sources that must be built
-# using the 32-bit instruction set on ARM platforms, and 'neon' is used
-# for sources that must be built with ARM Advanced SIMD (a.k.a. NEON)
-# support.
+# For example, the 'debug' tag is used to sources that must be built in debug
+# mode, the 'arm' tag is used for sources that must be built using the 32-bit
+# instruction set on ARM platforms. Historically .neon was used to enable Neon
+# for a given source file, but Neon was made the default in r21 and non-Neon
+# mode is no longer supported in r24 so these tags are accepted but have no
+# effect. A no_neon tag was supported as an implementation detail only; it could
+# not be used by Android.mk files, and is no longer present.
 #
 # More tags might be introduced in the future.
 #
@@ -1284,18 +1156,31 @@ NDK_APP_VARS_OPTIONAL := \
     APP_ASMFLAGS \
     APP_BUILD_SCRIPT \
     APP_CFLAGS \
+    APP_CLANG_TIDY \
+    APP_CLANG_TIDY_FLAGS \
     APP_CONLYFLAGS \
     APP_CPPFLAGS \
     APP_CXXFLAGS \
     APP_LDFLAGS \
     APP_MODULES \
     APP_OPTIM \
-    APP_PIE \
     APP_PLATFORM \
     APP_PROJECT_PATH \
     APP_SHORT_COMMANDS \
     APP_STL \
+    APP_STRIP_MODE \
+    APP_SUPPORT_FLEXIBLE_PAGE_SIZES \
     APP_THIN_ARCHIVE \
+    APP_WEAK_API_DEFS \
+    APP_WRAP_SH \
+
+# NDK_ALL_ABIS is not configured yet.
+NDK_APP_VARS_OPTIONAL += \
+    APP_WRAP_SH_armeabi-v7a \
+    APP_WRAP_SH_arm64-v8a \
+    APP_WRAP_SH_riscv64 \
+    APP_WRAP_SH_x86 \
+    APP_WRAP_SH_x86_64 \
 
 # the list of all variables that may appear in an Application.mk file
 # or defined by the build scripts.
@@ -1322,7 +1207,7 @@ get-object-name = $(strip \
     $(subst ../,__/,\
       $(subst :,_,\
         $(eval __obj := $1)\
-        $(foreach __ext,.c .s .S .asm $(LOCAL_CPP_EXTENSION) $(LOCAL_RS_EXTENSION),\
+        $(foreach __ext,.c .s .S .asm $(LOCAL_CPP_EXTENSION),\
             $(eval __obj := $(__obj:%$(__ext)=%$(TARGET_OBJ_EXTENSION)))\
         )\
         $(__obj)\
@@ -1331,43 +1216,11 @@ get-object-name = $(strip \
 -test-get-object-name = \
   $(eval TARGET_OBJ_EXTENSION=.o)\
   $(eval LOCAL_CPP_EXTENSION ?= .cpp)\
-  $(eval LOCAL_RS_EXTENSION ?= .rs)\
   $(call test-expect,foo.o,$(call get-object-name,foo.c))\
   $(call test-expect,bar.o,$(call get-object-name,bar.s))\
   $(call test-expect,zoo.o,$(call get-object-name,zoo.S))\
   $(call test-expect,tot.o,$(call get-object-name,tot.cpp))\
-  $(call test-expect,RS.o,$(call get-object-name,RS.rs))\
   $(call test-expect,goo.o,$(call get-object-name,goo.asm))
-
-get-rs-scriptc-name = $(strip \
-    $(subst ../,__/,\
-      $(subst :,_,\
-        $(eval __obj := $1)\
-        $(foreach __ext,$(LOCAL_RS_EXTENSION),\
-            $(eval __obj := $(__obj:%$(__ext)=%.cpp))\
-        )\
-        $(dir $(__obj))ScriptC_$(notdir $(__obj))\
-    )))
-
-get-rs-bc-name = $(strip \
-    $(subst ../,__/,\
-      $(subst :,_,\
-        $(eval __obj := $1)\
-        $(foreach __ext,$(LOCAL_RS_EXTENSION),\
-            $(eval __obj := $(__obj:%$(__ext)=%.bc))\
-        )\
-        $(__obj)\
-    )))
-
-get-rs-so-name = $(strip \
-    $(subst ../,__/,\
-      $(subst :,_,\
-        $(eval __obj := $1)\
-        $(foreach __ext,$(LOCAL_RS_EXTENSION),\
-            $(eval __obj := $(__obj:%$(__ext)=%$(TARGET_SONAME_EXTENSION)))\
-        )\
-        $(notdir $(__obj))\
-    )))
 
 # -----------------------------------------------------------------------------
 # Macro    : hide
@@ -1404,39 +1257,6 @@ endif
 # -----------------------------------------------------------------------------
 local-source-file-path = $(if $(call host-path-is-absolute,$1),$1,$(LOCAL_PATH)/$1)
 
-# cmd-convert-deps
-#
-# On Cygwin, we need to convert the .d dependency file generated by
-# the gcc toolchain by transforming any Windows paths inside it into
-# Cygwin paths that GNU Make can understand (i.e. C:/Foo => /cygdrive/c/Foo)
-#
-# To do that, we will force the compiler to write the dependency file to
-# <foo>.d.org, which will will later convert through a clever sed script
-# that is auto-generated by our build system.
-#
-# The script is invoked with:
-#
-#    $(NDK_DEPENDENCIES_CONVERTER) foo.d
-#
-# It will look if foo.d.org exists, and if so, process it
-# to generate foo.d, then remove the original foo.d.org.
-#
-# On other systems, we simply tell the compiler to write to the .d file directly.
-#
-# NOTE: In certain cases, no dependency file will be generated by the
-#       compiler (e.g. when compiling an assembly file as foo.s)
-#
-# convert-deps is used to compute the name of the compiler-generated dependency file
-# cmd-convert-deps is a command used to convert it to a Cygwin-specific path
-#
-ifeq ($(HOST_OS),cygwin)
-convert-deps = $1.org
-cmd-convert-deps = && $(NDK_DEPENDENCIES_CONVERTER) $1
-else
-convert-deps = $1
-cmd-convert-deps =
-endif
-
 # This assumes that many variables have been pre-defined:
 # _SRC: source file
 # _OBJ: destination file
@@ -1444,6 +1264,10 @@ endif
 # _FLAGS: 'compiler' flags
 # _TEXT: Display text (e.g. "Compile++ thumb", must be EXACTLY 15 chars long)
 #
+# The output object is removed before the compile step as a fix for
+# https://github.com/android-ndk/ndk/issues/603. tl;dr: Object files may not
+# necessarily be removed when compilation fails. .DELETE_ON_ERROR may not help
+# here because that only removes the output if the output changes.
 define ev-build-file
 $$(_OBJ): PRIVATE_ABI      := $$(TARGET_ARCH_ABI)
 $$(_OBJ): PRIVATE_SRC      := $$(_SRC)
@@ -1462,79 +1286,44 @@ $$(_OBJ): $$(_OPTIONS_LISTFILE)
 endif
 
 $$(call generate-file-dir,$$(_OBJ))
-$$(_OBJ): $$(_SRC) $$(LOCAL_MAKEFILE) $$(NDK_APP_APPLICATION_MK) $$(NDK_DEPENDENCIES_CONVERTER) $(LOCAL_RS_OBJECTS)
+$$(_OBJ): $$(_SRC) $$(LOCAL_MAKEFILE) $$(NDK_APP_APPLICATION_MK)
 	$$(call host-echo-build-step,$$(PRIVATE_ABI),$$(PRIVATE_TEXT)) "$$(PRIVATE_MODULE) <= $$(notdir $$(PRIVATE_SRC))"
-	$$(hide) $$(PRIVATE_CC) -MMD -MP -MF $$(call convert-deps,$$(PRIVATE_DEPS)) $$(PRIVATE_CFLAGS) $$(call host-path,$$(PRIVATE_SRC)) -o $$(call host-path,$$(PRIVATE_OBJ)) \
-	$$(call cmd-convert-deps,$$(PRIVATE_DEPS))
-endef
+	$$(hide) $$(call host-rm,$$(call host-path,$$(PRIVATE_OBJ)))
+	$$(hide) $$(PRIVATE_CC) -MMD -MP -MF $$(PRIVATE_DEPS) $$(PRIVATE_CFLAGS) $$(call host-path,$$(PRIVATE_SRC)) -o $$(call host-path,$$(PRIVATE_OBJ))
 
+_JSON_INTERMEDIATE := $$(_OBJ).commands.json
 
-# For renderscript: slightly different from the above ev-build-file
-# _RS_SRC: RS source file
-# _CPP_SRC: ScriptC_RS.cpp source file
-# _BC_SRC: Bitcode source file
-# _BC_SO: Bitcode SO name, no path
-# _OBJ: destination file
-# _RS_CC: 'compiler' command for _RS_SRC
-# _RS_BCC: 'compiler' command for _BC_SRC
-# _CXX: 'compiler' command for _CPP_SRC
-# _RS_FLAGS: 'compiler' flags for _RS_SRC
-# _CPP_FLAGS: 'compiler' flags for _CPP_SRC
-# _LD_FLAGS: 'compiler' flags for linking
-# _TEXT: Display text (e.g. "Compile RS")
-# _OUT: output dir
-# _COMPAT: 'true' if bcc_compat is required
-#
-define ev-build-rs-file
-$$(_OBJ): PRIVATE_ABI       := $$(TARGET_ARCH_ABI)
-$$(_OBJ): PRIVATE_RS_SRC    := $$(_RS_SRC)
-$$(_OBJ): PRIVATE_CPP_SRC   := $$(_CPP_SRC)
-$$(_OBJ): PRIVATE_BC_SRC    := $$(_BC_SRC)
-$$(_OBJ): PRIVATE_OBJ       := $$(_OBJ)
-$$(_OBJ): PRIVATE_BC_OBJ    := $$(_BC_SRC)$(TARGET_OBJ_EXTENSION)
-$$(_OBJ): PRIVATE_BC_SO     := $$(_BC_SO)
-$$(_OBJ): PRIVATE_DEPS      := $$(call host-path,$$(_OBJ).d)
-$$(_OBJ): PRIVATE_MODULE    := $$(LOCAL_MODULE)
-$$(_OBJ): PRIVATE_TEXT      := $$(_TEXT)
-$$(_OBJ): PRIVATE_RS_CC     := $$(_RS_CC)
-$$(_OBJ): PRIVATE_RS_BCC    := $$(_RS_BCC)
-$$(_OBJ): PRIVATE_CXX       := $$(_CXX)
-$$(_OBJ): PRIVATE_RS_FLAGS  := $$(_RS_FLAGS)
-$$(_OBJ): PRIVATE_CPPFLAGS  := $$(_CPP_FLAGS)
-$$(_OBJ): PRIVATE_LDFLAGS   := $$(_LD_FLAGS)
-$$(_OBJ): PRIVATE_OUT       := $$(NDK_APP_DST_DIR)
-$$(_OBJ): PRIVATE_RS_TRIPLE := $$(RS_TRIPLE)
-$$(_OBJ): PRIVATE_COMPAT    := $$(_COMPAT)
+_COMPILE_COMMAND := \
+    $$(_CC) $$(_FLAGS) \
+    $$(call host-path,$$(_SRC)) \
+    -o $$(call host-path,$$(_OBJ)) \
+
+_COMPILE_COMMAND_ARG := $$(_COMPILE_COMMAND)
 
 ifeq ($$(LOCAL_SHORT_COMMANDS),true)
-_OPTIONS_LISTFILE := $$(_OBJ).cflags
-$$(_OBJ): $$(call generate-list-file,$$(_CPP_FLAGS),$$(_OPTIONS_LISTFILE))
-$$(_OBJ): PRIVATE_CPPFLAGS := @$$(call host-path,$$(_OPTIONS_LISTFILE))
-$$(_OBJ): $$(_OPTIONS_LISTFILE)
+_SUB_COMMANDS_LIST_FILE := $$(_OBJ).commands.list
+$$(call generate-list-file,$$(_COMPILE_COMMAND),$$(_SUB_COMMANDS_LIST_FILE))
+$$(_JSON_INTERMEDIATE): $$(_SUB_COMMANDS_LIST_FILE)
+_COMPILE_COMMAND_ARG := --command-file "$$(_SUB_COMMANDS_LIST_FILE)"
 endif
 
-# llvm-rc-cc.exe has problem accepting input *.rs with path. To workaround:
-# cd ($dir $(_SRC)) ; llvm-rs-cc $(notdir $(_SRC)) -o ...full-path...
-#
-ifeq ($$(_COMPAT),true)
-$$(_OBJ): $$(_RS_SRC) $$(LOCAL_MAKEFILE) $$(NDK_APP_APPLICATION_MK) $$(NDK_DEPENDENCIES_CONVERTER)
-	$$(call host-echo-build-step,$$(PRIVATE_ABI),$$(PRIVATE_TEXT)) "$$(PRIVATE_MODULE) <= $$(notdir $$(PRIVATE_RS_SRC))"
-	$$(hide) \
-	cd $$(call host-path,$$(dir $$(PRIVATE_RS_SRC))) && $$(PRIVATE_RS_CC) -o $$(call host-path,$$(abspath $$(dir $$(PRIVATE_OBJ))))/ -d $$(abspath $$(call host-path,$$(dir $$(PRIVATE_OBJ)))) -MD -reflect-c++ -target-api $(strip $(subst android-,,$(APP_PLATFORM))) $$(PRIVATE_RS_FLAGS) $$(notdir $$(PRIVATE_RS_SRC))
-	$$(hide) \
-	$$(PRIVATE_RS_BCC) -O3 -o $$(call host-path,$$(PRIVATE_BC_OBJ)) -fPIC -shared -rt-path $$(call host-path,$(SYSROOT_LINK)/usr/lib/rs/libclcore.bc) -mtriple $$(PRIVATE_RS_TRIPLE) $$(call host-path,$$(PRIVATE_BC_SRC)) && \
-	$$(PRIVATE_CXX) -shared -Wl,-soname,librs.$$(PRIVATE_BC_SO) -nostdlib $$(call host-path,$$(PRIVATE_BC_OBJ)) $$(call host-path,$(SYSROOT_LINK)/usr/lib/rs/libcompiler_rt.a) -o $$(call host-path,$$(PRIVATE_OUT)/librs.$$(PRIVATE_BC_SO)) -L $$(call host-path,$(SYSROOT_LINK)/usr/lib) -L $$(call host-path,$(SYSROOT_LINK)/usr/lib/rs) $$(PRIVATE_LDFLAGS) -lRSSupport -lm -lc && \
-	$$(PRIVATE_CXX) -MMD -MP -MF $$(call convert-deps,$$(PRIVATE_DEPS)) $$(PRIVATE_CPPFLAGS) $$(call host-path,$$(PRIVATE_CPP_SRC)) -o $$(call host-path,$$(PRIVATE_OBJ)) \
-	$$(call cmd-convert-deps,$$(PRIVATE_DEPS))
-else
-$$(_OBJ): $$(_RS_SRC) $$(LOCAL_MAKEFILE) $$(NDK_APP_APPLICATION_MK) $$(NDK_DEPENDENCIES_CONVERTER)
-	$$(call host-echo-build-step,$$(PRIVATE_ABI),$$(PRIVATE_TEXT)) "$$(PRIVATE_MODULE) <= $$(notdir $$(PRIVATE_RS_SRC))"
-	$$(hide) \
-	cd $$(call host-path,$$(dir $$(PRIVATE_RS_SRC))) && $$(PRIVATE_RS_CC) -o $$(call host-path,$$(abspath $$(dir $$(PRIVATE_OBJ))))/ -d $$(abspath $$(call host-path,$$(dir $$(PRIVATE_OBJ)))) -MD -reflect-c++ -target-api $(strip $(subst android-,,$(APP_PLATFORM))) $$(PRIVATE_RS_FLAGS) $$(notdir $$(PRIVATE_RS_SRC))
-	$$(hide) \
-	$$(PRIVATE_CXX) -MMD -MP -MF $$(call convert-deps,$$(PRIVATE_DEPS)) $$(PRIVATE_CPPFLAGS) $$(call host-path,$$(PRIVATE_CPP_SRC)) -o $$(call host-path,$$(PRIVATE_OBJ)) \
-	$$(call cmd-convert-deps,$$(PRIVATE_DEPS))
-endif
+$$(call generate-file-dir,$$(_JSON_INTERMEDIATE))
+$$(_JSON_INTERMEDIATE): PRIVATE_CC := $$(_CC)
+$$(_JSON_INTERMEDIATE): PRIVATE_SRC := $$(_SRC)
+$$(_JSON_INTERMEDIATE): PRIVATE_OBJ := $$(_OBJ)
+$$(_JSON_INTERMEDIATE): PRIVATE_CFLAGS := $$(_FLAGS)
+$$(_JSON_INTERMEDIATE): PRIVATE_COMPILE_COMMAND_ARG := $$(_COMPILE_COMMAND_ARG)
+
+$$(_JSON_INTERMEDIATE): $$(LOCAL_MAKEFILE) $$(NDK_APP_APPLICATION_MK)
+	$$(hide) $$(HOST_PYTHON) $$(BUILD_PY)/dump_compile_commands.py \
+        -o $$@ \
+        --directory "$$(CURDIR)" \
+        --file "$$(call host-path,$$(PRIVATE_SRC))" \
+        --object-file "$$(PRIVATE_OBJ)" \
+        $$(PRIVATE_COMPILE_COMMAND_ARG)
+
+$$(COMPILE_COMMANDS_JSON): $$(_JSON_INTERMEDIATE)
+sub_commands_json += $$(_JSON_INTERMEDIATE)
 endef
 
 # This assumes the same things than ev-build-file, but will handle
@@ -1624,15 +1413,16 @@ define  ev-compile-c-source
 _SRC:=$$(call local-source-file-path,$(1))
 _OBJ:=$$(LOCAL_OBJS_DIR:%/=%)/$(2)
 
-_FLAGS := $$($$(my)CFLAGS) \
-          $$(call get-src-file-target-cflags,$(1)) \
-          $$(call host-c-includes,$$(LOCAL_C_INCLUDES) $$(LOCAL_PATH)) \
-          $$(LOCAL_CFLAGS) \
-          $$(LOCAL_CONLYFLAGS) \
-          $$(NDK_APP_CFLAGS) \
-          $$(NDK_APP_CONLYFLAGS) \
-          -isystem $$(call host-path,$$(SYSROOT_INC)/usr/include) \
-          -c \
+_FLAGS := \
+    $$(GLOBAL_CFLAGS) \
+    $$(TARGET_CFLAGS) \
+    $$(call get-src-file-target-cflags,$(1)) \
+    $$(call host-c-includes,$$(LOCAL_C_INCLUDES) $$(LOCAL_PATH)) \
+    $$(NDK_APP_CFLAGS) \
+    $$(NDK_APP_CONLYFLAGS) \
+    $$(LOCAL_CFLAGS) \
+    $$(LOCAL_CONLYFLAGS) \
+    -c \
 
 _TEXT := Compile $$(call get-src-file-text,$1)
 _CC   := $$(NDK_CCACHE) $$(TARGET_CC)
@@ -1651,15 +1441,16 @@ define  ev-compile-s-source
 _SRC:=$$(call local-source-file-path,$(1))
 _OBJ:=$$(LOCAL_OBJS_DIR:%/=%)/$(2)
 
-_FLAGS := $$($$(my)CFLAGS) \
-          $$(call get-src-file-target-cflags,$(1)) \
-          $$(call host-c-includes,$$(LOCAL_C_INCLUDES) $$(LOCAL_PATH)) \
-          $$(LOCAL_CFLAGS) \
-          $$(LOCAL_ASFLAGS) \
-          $$(NDK_APP_CFLAGS) \
-          $$(NDK_APP_ASFLAGS) \
-          -isystem $$(call host-path,$$(SYSROOT_INC)/usr/include) \
-          -c \
+_FLAGS := \
+    $$(GLOBAL_CFLAGS) \
+    $$(TARGET_CFLAGS) \
+    $$(call get-src-file-target-cflags,$(1)) \
+    $$(call host-c-includes,$$(LOCAL_C_INCLUDES) $$(LOCAL_PATH)) \
+    $$(NDK_APP_CFLAGS) \
+    $$(NDK_APP_ASFLAGS) \
+    $$(LOCAL_CFLAGS) \
+    $$(LOCAL_ASFLAGS) \
+    -c \
 
 _TEXT := Compile $$(call get-src-file-text,$1)
 _CC   := $$(NDK_CCACHE) $$(TARGET_CC)
@@ -1682,7 +1473,8 @@ _OBJ:=$$(LOCAL_OBJS_DIR:%/=%)/$(2)
 _FLAGS := $$(call host-c-includes,$$(LOCAL_C_INCLUDES) $$(LOCAL_PATH)) \
           $$(LOCAL_ASMFLAGS) \
           $$(NDK_APP_ASMFLAGS) \
-          -isystem $$(call host-path,$$(SYSROOT_INC)/usr/include) \
+          -I $$(call host-path,$$(SYSROOT_INC)/usr/include) \
+          $(subst -isystem,-I,$(SYSROOT_ARCH_INC_ARG)) \
           $$(if $$(filter x86_64, $$(TARGET_ARCH_ABI)), -f elf64, -f elf32 -m x86)
 
 _TEXT := Assemble $$(call get-src-file-text,$1)
@@ -1704,7 +1496,7 @@ $$(_OBJ): $$(_OPTIONS_LISTFILE)
 endif
 
 $$(call generate-file-dir,$$(_OBJ))
-$$(_OBJ): $$(_SRC) $$(LOCAL_MAKEFILE) $$(NDK_APP_APPLICATION_MK) $$(NDK_DEPENDENCIES_CONVERTER) $(LOCAL_RS_OBJECTS)
+$$(_OBJ): $$(_SRC) $$(LOCAL_MAKEFILE) $$(NDK_APP_APPLICATION_MK)
 	$$(call host-echo-build-step,$$(PRIVATE_ABI),$$(PRIVATE_TEXT)) "$$(PRIVATE_MODULE) <= $$(notdir $$(PRIVATE_SRC))"
 	$$(hide) $$(PRIVATE_CC) $$(PRIVATE_CFLAGS) $$(call host-path,$$(PRIVATE_SRC)) -o $$(call host-path,$$(PRIVATE_OBJ))
 endef
@@ -1751,19 +1543,20 @@ compile-asm-source = $(eval $(call ev-compile-asm-source,$1,$2))
 define  ev-compile-cpp-source
 _SRC:=$$(call local-source-file-path,$(1))
 _OBJ:=$$(LOCAL_OBJS_DIR:%/=%)/$(2)
-_FLAGS := $$($$(my)CXXFLAGS) \
-          $$(call get-src-file-target-cflags,$(1)) \
-          $$(call host-c-includes, $$(LOCAL_C_INCLUDES) $$(LOCAL_PATH)) \
-          $$(LOCAL_CFLAGS) \
-          $$(LOCAL_CPPFLAGS) \
-          $$(LOCAL_CXXFLAGS) \
-          $$(NDK_APP_CFLAGS) \
-          $$(NDK_APP_CPPFLAGS) \
-          $$(NDK_APP_CXXFLAGS) \
-          -isystem $$(call host-path,$$(SYSROOT_INC)/usr/include) \
-          -c \
+_FLAGS := \
+    $$(GLOBAL_CXXFLAGS) \
+    $$(TARGET_CXXFLAGS) \
+    $$(call get-src-file-target-cflags,$(1)) \
+    $$(call host-c-includes, $$(LOCAL_C_INCLUDES) $$(LOCAL_PATH)) \
+    $$(NDK_APP_CFLAGS) \
+    $$(NDK_APP_CPPFLAGS) \
+    $$(NDK_APP_CXXFLAGS) \
+    $$(LOCAL_CFLAGS) \
+    $$(LOCAL_CPPFLAGS) \
+    $$(LOCAL_CXXFLAGS) \
+    -c \
 
-_CC   := $$(NDK_CCACHE) $$($$(my)CXX)
+_CC   := $$(NDK_CCACHE) $$(TARGET_CXX)
 _TEXT := Compile++ $$(call get-src-file-text,$1)
 
 $$(eval $$(call ev-build-source-file))
@@ -1779,68 +1572,136 @@ endef
 # -----------------------------------------------------------------------------
 compile-cpp-source = $(eval $(call ev-compile-cpp-source,$1,$2))
 
-# -----------------------------------------------------------------------------
-# Template  : ev-compile-rs-source
-# Arguments : 1: single RS source file name (relative to LOCAL_PATH)
-#             2: intermediate cpp file (without path)
-#             3: intermediate bc file (without path)
-#             4: so file from bc (without path)
-#             5: target object file (without path)
-#             6: 'true' if bcc_compat is required
-# Returns   : None
-# Usage     : $(eval $(call ev-compile-rs-source,<srcfile>,<cppfile>,<objfile>)
-# Rationale : Internal template evaluated by compile-rs-source
-# -----------------------------------------------------------------------------
+# clang-tidy doesn't recognize every flag that clang does. This is unlikely to
+# be a complete list, but we can populate this with the ones we know to avoid
+# issues with clang-diagnostic-unused-command-line-argument.
+CLANG_TIDY_UNKNOWN_CFLAGS := \
+    -Wa,% \
 
-define  ev-compile-rs-source
-_RS_SRC:=$$(call local-source-file-path,$(1))
-_CPP_SRC:=$$(LOCAL_OBJS_DIR:%/=%)/$(2)
-_BC_SRC:=$$(LOCAL_OBJS_DIR:%/=%)/$(3)
-_BC_SO:=$(4)
-_OBJ:=$$(LOCAL_OBJS_DIR:%/=%)/$(5)
-_COMPAT := $(6)
-_CPP_FLAGS := $$($$(my)CXXFLAGS) \
-          $$(call get-src-file-target-cflags,$(1)) \
-          $$(call host-c-includes, $$(LOCAL_C_INCLUDES) $$(LOCAL_PATH)) \
-          $$(LOCAL_CFLAGS) \
-          $$(LOCAL_CPPFLAGS) \
-          $$(LOCAL_CXXFLAGS) \
-          $$(NDK_APP_CFLAGS) \
-          $$(NDK_APP_CPPFLAGS) \
-          $$(NDK_APP_CXXFLAGS) \
-          -isystem $$(call host-path,$$(SYSROOT_INC)/usr/include) \
-          -fno-rtti \
-          -c \
+sanitize_tidy_cflags = $(filter-out $(CLANG_TIDY_UNKNOWN_CFLAGS),$1)
 
-_LD_FLAGS := $$(TARGET_LDFLAGS)
+# Generates rules to check a source file with clang-tidy.
+#
+# This rule will depend on the source file, the Android.mk, the Application.mk,
+# and the object file that this source will be compiled into. The object file is
+# a dependency to ensure that we re-run clang-tidy if a header file included by
+# the source is changed, not just if the file itself changes.
+#
+# To avoid unnecessarily re-running this rule, we touch a foo.c.tidy file as the
+# output of this rule. Calling this function automatically appends the .tidy
+# file as a dependency of clang_tidy_rules, a phony rule that is a dependency of
+# the all rule.
+define ev-clang-tidy
+$$(_OUT): PRIVATE_ABI        := $$(TARGET_ARCH_ABI)
+$$(_OUT): PRIVATE_SRC        := $$(_SRC)
+$$(_OUT): PRIVATE_OUT        := $$(_OUT)
+$$(_OUT): PRIVATE_OBJ        := $$(_OBJ)
+$$(_OUT): PRIVATE_MODULE     := $$(LOCAL_MODULE)
+$$(_OUT): PRIVATE_TEXT       := $$(_TEXT)
+$$(_OUT): PRIVATE_CC         := $$(_CC)
+$$(_OUT): PRIVATE_CFLAGS     := $$(_FLAGS)
+$$(_OUT): PRIVATE_TIDY_FLAGS := $$(_TIDY_FLAGS)
 
-_RS_FLAGS := $$(call host-c-includes, $$(LOCAL_RENDERSCRIPT_INCLUDES) $$(LOCAL_PATH)) \
-          $$($$(my)RS_FLAGS) \
-          $$(LOCAL_RENDERSCRIPT_FLAGS) \
-          $$(call host-c-includes,$$($(my)RENDERSCRIPT_INCLUDES)) \
+ifeq ($$(LOCAL_SHORT_COMMANDS),true)
+_OPTIONS_LISTFILE := $$(_OUT).cflags
+$$(_OUT): $$(call generate-list-file,$$(_FLAGS),$$(_OPTIONS_LISTFILE))
+$$(_OUT): PRIVATE_CFLAGS := @$$(call host-path,$$(_OPTIONS_LISTFILE))
+$$(_OUT): $$(_OPTIONS_LISTFILE)
+endif
 
-_RS_CC  := $$(NDK_CCACHE) $$($$(my)RS_CC)
-_RS_BCC := $$(NDK_CCACHE) $$($$(my)RS_BCC)
-_CXX    := $$(NDK_CCACHE) $$($$(my)CXX)
-_TEXT   := Compile RS
-_OUT    := $$($$(my)OUT)
+clang_tidy_rules: $$(_OUT)
 
-$$(eval $$(call ev-build-rs-file))
+$$(call generate-file-dir,$$(_OUT))
+$$(_OUT): $$(_SRC) $$(LOCAL_MAKEFILE) $$(NDK_APP_APPLICATION_MK) $$(_OBJ)
+	$$(hide) $$(call host-rm,$$(PRIVATE_OUT))
+	$$(call host-echo-build-step,$$(PRIVATE_ABI),$$(PRIVATE_TEXT)) "$$(PRIVATE_MODULE) <= $$(notdir $$(PRIVATE_SRC))"
+	$$(hide) $$(CLANG_TIDY) $$(call host-path,$$(PRIVATE_SRC)) $$(PRIVATE_TIDY_FLAGS) -- $$(PRIVATE_CFLAGS)
+	$$(hide) $$(call generate-empty-file,$$(PRIVATE_OUT))
 endef
 
 # -----------------------------------------------------------------------------
-# Function  : compile-rs-source
-# Arguments : 1: single RS source file name (relative to LOCAL_PATH)
-#             2: intermediate cpp file name
-#             3: intermediate bc file
-#             4: so file from bc (without path)
-#             5: object file name
-#             6: 'true' if bcc_compat is required
+# Template  : ev-clang-tidy-c
+# Arguments : 1: Single C source file name (relative to LOCAL_PATH)
+#             2: obj file for the source. Used for tracking header dependencies.
 # Returns   : None
-# Usage     : $(call compile-rs-source,<srcfile>)
-# Rationale : Setup everything required to build a single RS source file
+# Usage     : $(eval $(call ev-clang-tidy-c,<srcfile>)
 # -----------------------------------------------------------------------------
-compile-rs-source = $(eval $(call ev-compile-rs-source,$1,$2,$3,$4,$5,$6))
+
+define  ev-clang-tidy-c
+_SRC := $$(call local-source-file-path,$(1))
+_OUT := $$(LOCAL_OBJS_DIR:%/=%)/$(1).tidy
+_OBJ := $$(LOCAL_OBJS_DIR:%/=%)/$(2)
+_TIDY_FLAGS := $$(NDK_APP_CLANG_TIDY_FLAGS) $$(LOCAL_CLANG_TIDY_FLAGS)
+
+_FLAGS := \
+    $$(call sanitize_tidy_cflags,\
+    $$(GLOBAL_CFLAGS) \
+    $$(TARGET_CFLAGS) \
+    $$(call get-src-file-target-cflags,$(1)) \
+    $$(call host-c-includes,$$(LOCAL_C_INCLUDES) $$(LOCAL_PATH)) \
+    $$(NDK_APP_CFLAGS) \
+    $$(NDK_APP_CONLYFLAGS) \
+    $$(LOCAL_CFLAGS) \
+    $$(LOCAL_CONLYFLAGS) \
+    -c \
+)
+
+_TEXT := clang-tidy $$(call get-src-file-text,$1)
+
+$$(eval $$(call ev-clang-tidy))
+endef
+
+# -----------------------------------------------------------------------------
+# Function  : clang-tidy-c
+# Arguments : 1: single C source file name (relative to LOCAL_PATH)
+#             2: obj file for the source. Used for tracking header dependencies.
+# Returns   : None
+# Usage     : $(call clang-tidy-c,<srcfile>)
+# -----------------------------------------------------------------------------
+clang-tidy-c = $(eval $(call ev-clang-tidy-c,$1,$2))
+
+# -----------------------------------------------------------------------------
+# Template  : ev-clang-tidy-cpp
+# Arguments : 1: single C++ source file name (relative to LOCAL_PATH)
+#             2: obj file for the source. Used for tracking header dependencies.
+# Returns   : None
+# Usage     : $(eval $(call ev-clang-tidy-cpp,<srcfile>)
+# -----------------------------------------------------------------------------
+
+define  ev-clang-tidy-cpp
+_SRC := $$(call local-source-file-path,$(1))
+_OUT := $$(LOCAL_OBJS_DIR:%/=%)/$(1).tidy
+_OBJ := $$(LOCAL_OBJS_DIR:%/=%)/$(2)
+_TIDY_FLAGS := $$(NDK_APP_CLANG_TIDY_FLAGS) $$(LOCAL_CLANG_TIDY_FLAGS)
+
+_FLAGS := \
+    $$(call sanitize_tidy_cflags,\
+    $$(GLOBAL_CXXFLAGS) \
+    $$(TARGET_CXXFLAGS) \
+    $$(call get-src-file-target-cflags,$(1)) \
+    $$(call host-c-includes, $$(LOCAL_C_INCLUDES) $$(LOCAL_PATH)) \
+    $$(NDK_APP_CFLAGS) \
+    $$(NDK_APP_CPPFLAGS) \
+    $$(NDK_APP_CXXFLAGS) \
+    $$(LOCAL_CFLAGS) \
+    $$(LOCAL_CPPFLAGS) \
+    $$(LOCAL_CXXFLAGS) \
+    -c\
+)
+
+_TEXT := clang-tidy $$(call get-src-file-text,$1)
+
+$$(eval $$(call ev-clang-tidy))
+endef
+
+# -----------------------------------------------------------------------------
+# Function  : clang-tidy-cpp
+# Arguments : 1: single C++ source file name (relative to LOCAL_PATH)
+#             2: obj file for the source. Used for tracking header dependencies.
+# Returns   : None
+# Usage     : $(call compile-cpp-source,<srcfile>)
+# -----------------------------------------------------------------------------
+clang-tidy-cpp = $(eval $(call ev-clang-tidy-cpp,$1,$2))
 
 #
 #  Module imports
@@ -2006,23 +1867,8 @@ $(call module-class-register,PREBUILT_STATIC_LIBRARY,,)
 #
 
 # The list of registered STL implementations we support
-NDK_STL_LIST :=
+NDK_STL_LIST := c++_shared c++_static system none
 
-# Used internally to register a given STL implementation, see below.
-#
-# $1: STL name as it appears in APP_STL (e.g. system)
-# $2: STL module name (e.g. cxx-stl/system)
-# $3: list of static libraries all modules will depend on
-# $4: list of shared libraries all modules will depend on
-# $5: list of ldlibs to be exported to all modules
-#
-ndk-stl-register = \
-    $(eval __ndk_stl := $(strip $1)) \
-    $(eval NDK_STL_LIST += $(__ndk_stl)) \
-    $(eval NDK_STL.$(__ndk_stl).IMPORT_MODULE := $(strip $2)) \
-    $(eval NDK_STL.$(__ndk_stl).STATIC_LIBS := $(strip $(call strip-lib-prefix,$3))) \
-    $(eval NDK_STL.$(__ndk_stl).SHARED_LIBS := $(strip $(call strip-lib-prefix,$4))) \
-    $(eval NDK_STL.$(__ndk_stl).EXPORT_LDLIBS := $(strip $5))
 
 # Called to check that the value of APP_STL is a valid one.
 # $1: STL name as it apperas in APP_STL (e.g. 'system')
@@ -2033,103 +1879,6 @@ ndk-stl-check = \
         $(call __ndk_info,Please use one of the following instead: $(NDK_STL_LIST))\
         $(call __ndk_error,Aborting))
 
-# Called before the top-level Android.mk is parsed to
-# select the STL implementation.
-# $1: STL name as it appears in APP_STL (e.g. system)
-#
-ndk-stl-select = \
-    $(call import-module,$(NDK_STL.$1.IMPORT_MODULE))
-
-# Called after all Android.mk files are parsed to add
-# proper STL dependencies to every C++ module.
-# $1: STL name as it appears in APP_STL (e.g. system)
-#
-ndk-stl-add-dependencies = \
-    $(call modules-add-c++-dependencies,\
-        $(NDK_STL.$1.STATIC_LIBS),\
-        $(NDK_STL.$1.SHARED_LIBS),\
-        $(NDK_STL.$1.LDLIBS))
-
-#
-#
-
-# Register the 'system' STL implementation
-#
-$(call ndk-stl-register,\
-    system,\
-    cxx-stl/system,\
-    libstdc++,\
-    ,\
-    \
-    )
-
-# Register the 'stlport_static' STL implementation
-#
-$(call ndk-stl-register,\
-    stlport_static,\
-    cxx-stl/stlport,\
-    stlport_static,\
-    ,\
-    \
-    )
-
-# Register the 'stlport_shared' STL implementation
-#
-$(call ndk-stl-register,\
-    stlport_shared,\
-    cxx-stl/stlport,\
-    ,\
-    stlport_shared,\
-    \
-    )
-
-# Register the 'gnustl_static' STL implementation
-#
-$(call ndk-stl-register,\
-    gnustl_static,\
-    cxx-stl/gnu-libstdc++,\
-    gnustl_static,\
-    ,\
-    \
-    )
-
-# Register the 'gnustl_shared' STL implementation
-#
-$(call ndk-stl-register,\
-    gnustl_shared,\
-    cxx-stl/gnu-libstdc++,\
-    ,\
-    gnustl_shared,\
-    \
-    )
-
-# Register the 'c++_static' STL implementation
-#
-$(call ndk-stl-register,\
-    c++_static,\
-    cxx-stl/llvm-libc++,\
-    c++_static libc++abi libunwind android_support,\
-    ,\
-    -ldl\
-    )
-
-# Register the 'c++_shared' STL implementation
-#
-$(call ndk-stl-register,\
-    c++_shared,\
-    cxx-stl/llvm-libc++,\
-    libandroid_support libunwind,\
-    c++_shared,\
-    \
-    )
-
-# The 'none' APP_STL value corresponds to no C++ support at
-# all. Used by some of the STLport and GAbi++ test projects.
-#
-$(call ndk-stl-register,\
-    none,\
-    cxx-stl/system,\
-    )
 
 ifneq (,$(NDK_UNIT_TESTS))
 $(call ndk-run-all-tests)

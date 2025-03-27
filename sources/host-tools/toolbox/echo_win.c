@@ -26,13 +26,12 @@
  * SUCH DAMAGE.
  */
 
-/* To avoid many issues, always build this as a Unicode program */
-#define UNICODE 1
-#define _UNICODE 1
 #include <windows.h>
-#include <tchar.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
 
 /* A brain-dead 'echo' toolbox program for Windows, because the cmd.exe
  * 'echo' command is too weird to be usable with the NDK.
@@ -40,31 +39,30 @@
 
 int main(void)
 {
-    int flagNoNewline = 0;
+    bool flagNoNewline = false;
     int argc;
-    TCHAR** argv = CommandLineToArgvW(GetCommandLine(), &argc);
+    wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
-    int nn;
-
-    /* IMPORTANT: echo should only accept -n as a first option, everything
-     * else must be treated as part of the input string.
-     */
-    if (argc > 1 && argv[1][0] == L'-' && argv[1][1] == L'n' && argv[1][2] == L'\0') {
-        flagNoNewline = 1;
+    // Discard the name of the executable.
+    if (argc > 0) {
         argc--;
         argv++;
     }
 
-    const TCHAR* comma = L"";
-    while (argc > 1) {
-        _tprintf(L"%s%s", comma, argv[1]);
-        comma = L" ";
+    // IMPORTANT: echo should only accept -n as a first option, everything
+    // else must be treated as part of the input string.
+    if (argc > 0 && !wcscmp(argv[0], L"-n")) {
+        flagNoNewline = true;
         argc--;
         argv++;
     }
 
-    if (!flagNoNewline)
-        _tprintf(L"\n");
+    for (int i = 0; i < argc; ++i) {
+        wprintf(L"%ls%ls", ((i > 0) ? L" " : L""), argv[i]);
+    }
+    if (!flagNoNewline) {
+        wprintf(L"\n");
+    }
 
     return 0;
 }

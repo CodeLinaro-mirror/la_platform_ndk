@@ -12,11 +12,9 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
 
-#ifndef _ANDROID_NATIVE_APP_GLUE_H
-#define _ANDROID_NATIVE_APP_GLUE_H
+#pragma once
 
 #include <poll.h>
 #include <pthread.h>
@@ -44,12 +42,13 @@ extern "C" {
  * loop in a different thread instead. Here's how it works:
  *
  * 1/ The application must provide a function named "android_main()" that
- *    will be called when the activity is created, in a new thread that is
- *    distinct from the activity's main thread.
+ *    will be called when the activity is created (and again every time the
+ *    activity is recreated), in a new thread that is distinct from the
+ *    activity's main thread.
  *
  * 2/ android_main() receives a pointer to a valid "android_app" structure
  *    that contains references to other important objects, e.g. the
- *    ANativeActivity obejct instance the application is running in.
+ *    ANativeActivity object instance the application is running in.
  *
  * 3/ the "android_app" object holds an ALooper instance that already
  *    listens to two important things:
@@ -159,6 +158,7 @@ struct android_app {
 
     // This is non-zero when the application's NativeActivity is being
     // destroyed and waiting for the app thread to complete.
+    // Your android_main() must return to its caller when this is non-zero.
     int destroyRequested;
 
     // -------------------------------------------------
@@ -332,18 +332,23 @@ void android_app_pre_exec_cmd(struct android_app* android_app, int8_t cmd);
 void android_app_post_exec_cmd(struct android_app* android_app, int8_t cmd);
 
 /**
- * Dummy function you can call to ensure glue code isn't stripped.
+ * No-op function that used to be used to prevent the linker from stripping app
+ * glue code. No longer necessary, since __attribute__((visibility("default")))
+ * does this for us.
  */
-void app_dummy();
+__attribute__((
+    deprecated("Calls to app_dummy are no longer necessary. See "
+               "https://github.com/android-ndk/ndk/issues/381."))) void
+app_dummy();
 
 /**
  * This is the function that application code must implement, representing
  * the main entry to the app.
+ *
+ * This is called every time the activity is recreated.
  */
 extern void android_main(struct android_app* app);
 
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* _ANDROID_NATIVE_APP_GLUE_H */

@@ -1,10 +1,10 @@
-def build_unsupported(abi, platform, toolchain):
-    if platform < 18:
-        return platform
+def build_unsupported(test):
+    if test.config.api < 18:
+        return test.config.api
     return None
 
 
-def run_unsupported(abi, device_api, toolchain, subtest):
-    if device_api < 18:
-        return device_api
+def run_unsupported(_test, device):
+    if device.version < 18:
+        return device.version
     return None

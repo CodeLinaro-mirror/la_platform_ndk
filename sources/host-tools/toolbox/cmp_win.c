@@ -26,13 +26,11 @@
  * SUCH DAMAGE.
  */
 
-/* To avoid many issues, always build this as a Unicode program */
-#define UNICODE 1
-#define _UNICODE 1
 #include <windows.h>
-#include <tchar.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
 
 /* A brain-dead 'cmp' toolbox program for Windows, because comp.exe
  * can't be silenced and doesn't return meaningful status code
@@ -41,27 +39,34 @@
 int main(void)
 {
     int argc;
-    TCHAR** argv = CommandLineToArgvW(GetCommandLine(), &argc);
+    wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
-    /* IMPORTANT: cmp only accepts optional -s as the first option, followed by two file
-     *            name.  Note that regardless "-s" this cmp always operate in silent mode
-     */
-    if (argc > 1 && argv[1][0] == L'-' && argv[1][1] == L's' && argv[1][2] == L'\0') {
+    // Discard the name of the executable.
+    if (argc > 0) {
         argc--;
         argv++;
     }
-    if (argc != 3) {
-        _tprintf(L"Usage: cmp [-s] file1 file2\n");
+
+    // IMPORTANT: cmp only accepts optional -s as the first option, followed by two file
+    //            name.  Note that regardless of "-s" this cmp always operates in silent mode.
+    if (argc > 0 && !wcscmp(argv[0], L"-s")) {
+        argc--;
+        argv++;
+    }
+    if (argc != 2) {
+        wprintf(L"Usage: cmp [-s] file1 file2\n");
         exit(1);
     }
-    FILE *f1 = _tfopen(argv[1], L"rb");
+    const wchar_t* filename1 = argv[0];
+    const wchar_t* filename2 = argv[1];
+    FILE *f1 = _wfopen(filename1, L"rb");
     if (!f1) {
-        _tprintf(L"ERROR: can't open file %s\n", argv[1]);
+        wprintf(L"ERROR: can't open file %ls\n", filename1);
         exit(1);
     }
-    FILE *f2 = _tfopen(argv[2], L"rb");
+    FILE *f2 = _wfopen(filename2, L"rb");
     if (!f2) {
-        _tprintf(L"ERROR: can't open file %s\n", argv[2]);
+        wprintf(L"ERROR: can't open file %ls\n", filename2);
         fclose(f1);
         exit(1);
     }

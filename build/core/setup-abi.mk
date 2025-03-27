@@ -26,28 +26,19 @@ endif
 
 TARGET_OUT := $(NDK_APP_OUT)/$(_app)/$(TARGET_ARCH_ABI)
 
-# For x86 and mips: the minimal platform level is android-9
-TARGET_PLATFORM_SAVED := $(TARGET_PLATFORM)
-ifneq ($(filter %x86 %mips,$(TARGET_ARCH_ABI)),)
-$(foreach _plat,3 4 5 8,\
-    $(eval TARGET_PLATFORM := $$(subst android-$(_plat),android-9,$$(TARGET_PLATFORM)))\
-)
+TARGET_PLATFORM_LEVEL := $(APP_PLATFORM_LEVEL)
+
+# Pull up the minSdkVersion for this ABI if it is higher than the user's
+# APP_PLATFORM. A warning will be separately emitted in setup-app-platform.mk if
+# the user's APP_PLATFORM is too low for the NDK overall.
+MIN_OS_FOR_TARGET := $(NDK_ABI_${TARGET_ARCH_ABI}_MIN_OS_VERSION)
+ifneq ($(call lt,$(TARGET_PLATFORM_LEVEL),$(MIN_OS_FOR_TARGET)),)
+    TARGET_PLATFORM_LEVEL := $(MIN_OS_FOR_TARGET)
 endif
 
-# For 64-bit ABIs: the minimal platform level is android-21
-ifneq ($(filter $(NDK_KNOWN_DEVICE_ABI64S),$(TARGET_ARCH_ABI)),)
-$(foreach _plat,3 4 5 8 9 10 11 12 13 14 15 16 17 18 19 20,\
-    $(eval TARGET_PLATFORM := $$(subst android-$(_plat),android-21,$$(TARGET_PLATFORM)))\
-)
-endif
-
-TARGET_PLATFORM_LEVEL := $(strip $(subst android-,,$(TARGET_PLATFORM)))
-ifneq (,$(call gte,$(TARGET_PLATFORM_LEVEL),$(NDK_FIRST_PIE_PLATFORM_LEVEL)))
-    TARGET_PIE := true
-    $(call ndk_log,  Enabling -fPIE for TARGET_PLATFORM $(TARGET_PLATFORM))
-else
-    TARGET_PIE := false
-endif
+# Not used by ndk-build, but are documented for use by Android.mk files.
+TARGET_PLATFORM := android-$(TARGET_PLATFORM_LEVEL)
+TARGET_ABI := $(TARGET_PLATFORM)-$(TARGET_ARCH_ABI)
 
 # Separate the debug and release objects. This prevents rebuilding
 # everything when you switch between these two modes. For projects
@@ -58,24 +49,4 @@ else
 TARGET_OBJS := $(TARGET_OUT)/objs
 endif
 
-TARGET_GDB_SETUP := $(TARGET_OUT)/setup.gdb
-
-# RS triple
-ifeq ($(TARGET_ARCH_ABI),armeabi-v7a)
-  RS_TRIPLE := armv7-none-linux-gnueabi
-endif
-ifeq ($(TARGET_ARCH_ABI),armeabi)
-  RS_TRIPLE := arm-none-linux-gnueabi
-endif
-ifeq ($(TARGET_ARCH_ABI),mips)
-  RS_TRIPLE := mipsel-unknown-linux
-endif
-ifeq ($(TARGET_ARCH_ABI),x86)
-  RS_TRIPLE := i686-unknown-linux
-endif
-
-
 include $(BUILD_SYSTEM)/setup-toolchain.mk
-
-# Restore TARGET_PLATFORM, see above.
-TARGET_PLATFORM := $(TARGET_PLATFORM_SAVED)

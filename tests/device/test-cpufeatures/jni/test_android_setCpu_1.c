@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -16,7 +17,7 @@ int main(void) {
   // and that android_getCpuCount() and android_getCpuFeatures()
   // will return the corresponding values.
   //
-  printf("Setting cpu_count=%d, features=%08llx\n",
+  printf("Setting cpu_count=%d, features=%08" PRIx64 "\n",
          cpu_count,
          cpu_features);
   if (!android_setCpu(cpu_count, cpu_features))
@@ -25,7 +26,7 @@ int main(void) {
   count = android_getCpuCount();
   features = android_getCpuFeatures();
 
-  printf("Retrieved cpu_count=%d, features=%08llx\n",
+  printf("Retrieved cpu_count=%d, features=%08" PRIx64 "\n",
          count, features);
 
   if (count != cpu_count)
@@ -42,4 +43,3 @@ int main(void) {
   printf("Second call to android_setCpu() failed as expected.\n");
   return 0;
 }
-

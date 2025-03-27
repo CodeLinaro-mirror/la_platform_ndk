@@ -1,0 +1,26 @@
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+Build fingerprint: 'Android/aosp_taimen/taimen:R/QT/eng.cferri.20191008.133647:userdebug/test-keys'
+Revision: 'rev_a'
+ABI: 'arm64'
+Timestamp: 2019-10-10 21:15:11+0000
+pid: 21586, tid: 21586, name: ple.hellohwasan  >>> com.example.hellohwasan <<<
+uid: 0
+signal 6 (SIGABRT), code -1 (SI_QUEUE), fault addr --------
+Abort message: '==21586==ERROR: HWAddressSanitizer: tag-mismatch on address 0x0042a0807af0 at pc 0x007b23b8786c
+WRITE of size 1 at 0x0042a0807af0 tags: db/19 (ptr/mem) in thread T0
+    #0 0x7b23b87868  (/data/app/com.example.hellohwasan-MBZF010sEpmy2cZikx49pQ==/lib/arm64/libc64.so+0x7b138)
+    #1 0x7b8f1e4ccc  (/apex/com.android.art/lib64/libart.so+0x198ccc)
+
+[0x0042a0807ae0,0x0042a0807b00) is a small allocated heap chunk; size: 32 offset: 16
+0x0042a0807af0 is located 0 bytes to the right of 16-byte region [0x0042a0807ae0,0x0042a0807af0)
+allocated here:
+    #0 0x7b23b87868  (/data/app/com.example.hellohwasan-MBZF010sEpmy2cZikx49pQ==/lib/arm64/libc64.so+0x7b15c)
+
+Thread: T325 0x00720040e000 stack: [0x007b7f731000,0x007b7f82acc0) sz: 1023168 tls: [0x000000000000,0x000000000000)
+Thread: T324 0x00720040a000 stack: [0x007b80841000,0x007b8093acc0) sz: 1023168 tls: [0x000000000000,0x000000000000)
+Memory tags around the buggy address (one tag corresponds to 16 bytes):
+   52  52  57  57  c2  08  27  2b  90  99  08  66  eb  eb  87  87   
+   6f  6f  2f  2f  3f  3f  8d  8d  97  97  1d  1d  8d  8d  f5  f5   
+
+backtrace:
+      #00 pc 000000000007f3ec  /system/lib64/bootstrap/libc64.so (abort+172) (BuildId: d0080326fbef53980488aedd32b02f5d)

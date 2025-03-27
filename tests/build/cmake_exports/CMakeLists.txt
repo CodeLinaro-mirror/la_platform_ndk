@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.22)
+project(CMakeExportsTest C CXX)
+
+foreach(TEST_VAR CMAKE_C_COMPILER CMAKE_CXX_COMPILER CMAKE_AR CMAKE_STRIP CMAKE_RANLIB)
+    if(NOT DEFINED "${TEST_VAR}")
+        message(FATAL_ERROR "${TEST_VAR} not set")
+    elseif(NOT ${TEST_VAR} MATCHES "${CMAKE_ANDROID_NDK}")
+        message(FATAL_ERROR "${TEST_VAR} (${${TEST_VAR}}) is outside the NDK (${CMAKE_ANDROID_NDK})")
+    else()
+        message(WARNING "${TEST_VAR} is ${${TEST_VAR}}")
+    endif()
+endforeach()

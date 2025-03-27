@@ -13,10 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <cpu-features.h>
+#include <memory.h>
 #include <setjmp.h>
 #include <stdio.h>
 #include <signal.h>
+
+#include <cpu-features.h>
 
 #ifndef __arm__
 #error "Only compile this file for an ARM target"

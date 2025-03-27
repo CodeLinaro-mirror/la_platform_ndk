@@ -1,4 +1,4 @@
-def build_unsupported(abi, platform, toolchain):
-    if abi != 'arm64-v8a':
-        return abi
+def build_unsupported(test):
+    if test.config.abi != "arm64-v8a":
+        return test.config.abi
     return None

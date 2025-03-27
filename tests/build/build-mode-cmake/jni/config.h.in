@@ -1,0 +1,7 @@
+#cmakedefine CHECK_NEON
+
+#cmakedefine CHECK_THUMB2
+
+#cmakedefine CHECK_ARM
+
+#cmakedefine CHECK_X86

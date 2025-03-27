@@ -40,9 +40,16 @@ prebuilt_path := $(call local-prebuilt-path,$(LOCAL_SRC_FILES))
 prebuilt := $(strip $(wildcard $(prebuilt_path)))
 
 ifndef prebuilt
-$(call __ndk_info,ERROR:$(LOCAL_MAKEFILE):$(LOCAL_MODULE): LOCAL_SRC_FILES points to a missing file)
-$(call __ndk_info,Check that $(prebuilt_path) exists, or that its path is correct)
-$(call __ndk_error,Aborting)
+    ifeq ($(LOCAL_ALLOW_MISSING_PREBUILT),true)
+        prebuilt := $(prebuilt_path)
+        include $(BUILD_SYSTEM)/define-missing-prebuilt.mk
+    else
+        $(call __ndk_info,ERROR:$(LOCAL_MAKEFILE):$(LOCAL_MODULE): \
+            LOCAL_SRC_FILES points to a missing file)
+        $(call __ndk_info,Check that $(prebuilt_path) exists, or that its path \
+            is correct)
+        $(call __ndk_error,Aborting)
+    endif
 endif
 
 # If LOCAL_MODULE_FILENAME is defined, it will be used to name the file

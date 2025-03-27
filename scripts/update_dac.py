@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (C) 2016 The Android Open Source Project
 #
@@ -14,54 +14,123 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""Builds the user documentation and copies it into a DAC tree."""
+
+"""Builds the docs/user documentation and copies it into a DAC tree.
+
+To use (inside Google):
+
+g4 citc update-dac
+$NDK/scripts/update_dac.py /google/src/cloud/$USER/update-dac/google3
+cd /google/src/cloud/$USER/update-dac/google3
+g4 mail
+"""
+
 import argparse
 import logging
-import os.path
+import os
 import shutil
 import subprocess
-
 
 THIS_DIR = os.path.realpath(os.path.dirname(__file__))
 NDK_DIR = os.path.dirname(THIS_DIR)
 
 
-def check_call(cmd, *args, **kwargs):
-    logging.getLogger(__name__).info('COMMAND: %s', ' '.join(cmd))
-    subprocess.check_call(cmd, *args, **kwargs)
+def logger():
+    """Get the module logger."""
+    return logging.getLogger(__name__)
+
+
+def copy2(src, dst):
+    """shutil.copy2 with logging."""
+    logger().info("copy2: %s %s", src, dst)
+    shutil.copy2(src, dst)
+
+
+def rmtree(path):
+    """shutil.rmtree with logging."""
+    logger().info("rmtree: %s", path)
+    shutil.rmtree(path)
+
+
+def makedirs(path):
+    """os.makedirs with logging."""
+    logger().info("makedirs: %s", path)
+    os.makedirs(path)
+
+
+def call(cmd, *args, **kwargs):
+    """subprocess.call with logging."""
+    logger().info("call: %s", " ".join(cmd))
+    subprocess.call(cmd, *args, **kwargs)
 
 
 def build_docs():
-    docs_dir = os.path.join(NDK_DIR, 'docs')
-    check_call(['make', '-C', docs_dir])
-    return os.path.join(docs_dir, 'html/user')
+    """Perform any necessary preprocessing steps.
+
+    * Rewrite "[TOC]" (gitiles spelling) to "[[TOC]]" (devsite spelling).
+    * Add devsite metadata for navigation support.
+    """
+    docs_dir = os.path.join(NDK_DIR, "docs/user")
+    out_dir = os.path.join(NDK_DIR, "docs/out")
+    if os.path.exists(out_dir):
+        rmtree(out_dir)
+    makedirs(out_dir)
+    for doc in os.listdir(docs_dir):
+        with open(os.path.join(out_dir, doc), "w") as out_file:
+            out_file.write(
+                "Project: /ndk/_project.yaml\n"
+                "Book: /ndk/guides/_book.yaml\n"
+                "Subcategory: guide\n"
+                "\n"
+            )
+
+            path = os.path.join(docs_dir, doc)
+            with open(path) as in_file:
+                contents = in_file.read()
+                contents = contents.replace("[TOC]", "[[TOC]]")
+                out_file.write(contents)
+    return out_dir
 
 
 def copy_docs(docs_tree, docs_out):
-    dest_dir = os.path.join(docs_tree, 'frameworks/base/docs/html/ndk/guides')
+    """Copy the docs to the devsite directory."""
+    dest_dir = os.path.join(docs_tree, "googledata/devsite/site-android/en/ndk/guides")
 
-    for root, _dirs, files in os.walk(docs_out):
+    cwd = os.getcwd()
+    for root, _, files in os.walk(docs_out):
         for file_name in files:
-            shutil.copy2(os.path.join(root, file_name), dest_dir)
-            check_call(['git', '-C', dest_dir, 'add', file_name])
+            dest_path = os.path.join(dest_dir, file_name)
+            if os.path.exists(dest_path):
+                # `g4 edit` doesn't work unless it's actually in the citc
+                # client.
+                os.chdir(dest_dir)
+                try:
+                    # Might fail if the file is new (will only happen if the
+                    # script is re-run), but that's not a problem.
+                    call(["g4", "edit", file_name])
+                finally:
+                    os.chdir(cwd)
+            copy2(os.path.join(root, file_name), dest_dir)
 
 
 def parse_args():
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        'docs_tree', type=os.path.realpath, metavar='DOCS_TREE',
-        help='Path to DAC tree')
+        "docs_tree", type=os.path.realpath, metavar="DOCS_TREE", help="Path to DAC tree"
+    )
 
     return parser.parse_args()
 
 
 def main():
+    """Program entry point."""
     logging.basicConfig(level=logging.INFO)
     args = parse_args()
     docs_out = build_docs()
     copy_docs(args.docs_tree, docs_out)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -29,10 +29,6 @@ int main(void)
 #  ifndef __i386__
 #    error "This source file should be compiled with an x86 toolchain"
 #  endif
-#elif defined(CHECK_MIPS)
-#  ifndef __mips__
-#    error "This source file should be compiled with a MIPS toolchain"
-#  endif
 #else
 #  error "This unit test is broken!"
 #endif

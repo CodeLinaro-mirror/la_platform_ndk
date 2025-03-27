@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#define __STDC_FORMAT_MACROS 1
 
 #include <cpu-features.h>
 #include <inttypes.h>
@@ -22,27 +21,20 @@
 int main(void)
 {
     AndroidCpuFamily family = android_getCpuFamily();
-    switch (family) {
-    case ANDROID_CPU_FAMILY_ARM:
-        printf("CPU family is ARM\n");
-        break;
-    case ANDROID_CPU_FAMILY_X86:
-        printf("CPU family is x86\n");
-        break;
-    case ANDROID_CPU_FAMILY_MIPS:
-        printf("CPU family is MIPS\n");
-        break;
-    case ANDROID_CPU_FAMILY_ARM64:
-        printf("CPU family is ARM64\n");
-        break;
-    case ANDROID_CPU_FAMILY_X86_64:
-        printf("CPU family is x86_64\n");
-        break;
-    case ANDROID_CPU_FAMILY_MIPS64:
-        printf("CPU family is MIPS64\n");
-        break;
-    default:
-        fprintf(stderr, "Unsupported CPU family: %d\n", family);
+#if defined(__arm__)
+    if (family != ANDROID_CPU_FAMILY_ARM) {
+#elif defined(__aarch64__)
+    if (family != ANDROID_CPU_FAMILY_ARM64) {
+#elif defined(__i386__)
+    if (family != ANDROID_CPU_FAMILY_X86) {
+#elif defined(__x86_64__)
+    if (family != ANDROID_CPU_FAMILY_X86_64) {
+#elif defined(__riscv) && __riscv_xlen == 64
+    if (family != ANDROID_CPU_FAMILY_RISCV64) {
+#else
+    {
+#endif
+        fprintf(stderr, "Unsupported/incorrect CPU family: %d\n", family);
         return 1;
     }
 
@@ -91,12 +83,6 @@ int main(void)
         CHECK(X86, MOVBE)
         CHECK(X86, SSE4_1)
         CHECK(X86, SSE4_2)
-        break;
-    case ANDROID_CPU_FAMILY_MIPS:
-    case ANDROID_CPU_FAMILY_MIPS64:
-        printf( "Supported MIPS features:\n");
-        CHECK(MIPS, R6)
-        CHECK(MIPS, MSA)
         break;
     default:
         if (features != 0) {

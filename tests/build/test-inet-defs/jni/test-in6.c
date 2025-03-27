@@ -27,4 +27,4 @@
 #ifndef IN6_IS_ADDR_MULTICAST
 #error IN6_IS_ADDR_MULTICAST is not defined by <inet/in6.h>
 #endif
-char dummy_in6;
+char in6;

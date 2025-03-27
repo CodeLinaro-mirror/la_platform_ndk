@@ -1,0 +1,15 @@
+********** Crash dump: **********
+Build fingerprint: 'Android/aosp_taimen/taimen:R/QT/eng.cferri.20191008.133647:userdebug/test-keys'
+Abort message: 'FORTIFY: strlcat: prevented 5-byte write into 4-byte buffer'
+#00 0x000000000007f3ec /system/lib64/bootstrap/libc64.so (abort+172) (BuildId: d0080326fbef53980488aedd32b02f5d)
+                                                          abort
+                                                          bionic/libc/bionic/abort.cpp:50:3
+Crash dump is completed
+
+********** Crash dump: **********
+Build fingerprint: 'Android/aosp_taimen/taimen:R/QT/eng.cferri.20191008.133647:userdebug/test-keys'
+#00 0x00063b76 /system/lib/bootstrap/libc.so (__sem_timedwait(sem_t*, timespec const*, bool)+68) (BuildId: cd193f754b8535bc662dd794f63b7891)
+                                              check_timespec(timespec const*, bool)
+                                              bionic/libc/private/bionic_time_conversions.h:56:11
+                                              __sem_timedwait(sem_t*, timespec const*, bool)
+                                              bionic/libc/bionic/semaphore.cpp:244:0

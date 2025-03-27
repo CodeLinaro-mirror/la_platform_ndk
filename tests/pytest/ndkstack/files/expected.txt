@@ -1,0 +1,53 @@
+********** Crash dump: **********
+#00 0x0000e4fc test.apk!libbase.so (offset 0x1000)
+                                    android::base::RemoveFileIfExists(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>*)
+                                    system/core/base/file.cpp:365:0
+#01 0x0000e4fc test.apk!libbase.so (offset 0x1000)
+                                    android::base::RemoveFileIfExists(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>*)
+                                    system/core/base/file.cpp:365:0
+#02 0x00057250 test.apk!libc.so (offset 0x14000)
+                                 __memcpy_a15
+                                 bionic/libc/arch-arm/cortex-a15/bionic/memcpy.S:68:0
+#03 0x00057250 test.apk!libc.so (offset 0x14000)
+                                 __memcpy_a15
+                                 bionic/libc/arch-arm/cortex-a15/bionic/memcpy.S:68:0
+#04 0x000050e9 test.apk!libdemangle.so (offset 0x8b000)
+                                        Demangler::Parse(char const*, unsigned int)
+                                        ??:0:0
+#05 0x000050e9 test.apk!libdemangle.so (offset 0x8b000)
+                                        Demangler::Parse(char const*, unsigned int)
+                                        ??:0:0
+#06 0x0000dd50 test.apk!libutils.so (offset 0x8f000)
+                                     android::Thread::run(char const*, int, unsigned int)
+                                     system/core/libutils/Threads.cpp:665:0
+#07 0x0000dd50 test.apk!libutils.so (offset 0x8f000)
+                                     android::Thread::run(char const*, int, unsigned int)
+                                     system/core/libutils/Threads.cpp:665:0
+#08 0x00006894 test.apk!libziparchive.so (offset 0x9a000)
+                                          MappedZipFile::GetBasePtr() const
+                                          system/core/libziparchive/zip_archive.cc:1155:0
+#09 0x00006894 test.apk!libziparchive.so (offset 0x9a000) (BuildId: 786581cf8457e7df2bd30179c821d754)
+                                          MappedZipFile::GetBasePtr() const
+                                          system/core/libziparchive/zip_archive.cc:1155:0
+#10 0x00006894 test.apk!libziparchive.so (offset 0x9a000) (BuildId: bad012345)
+#11 0x00006894 test.apk!libziparchive.so (offset 0x9a000)
+                                          MappedZipFile::GetBasePtr() const
+                                          system/core/libziparchive/zip_archive.cc:1155:0
+#12 0x00006894 test.apk!libziparchive.so (offset 0x9a000) (BuildId: 786581cf8457e7df2bd30179c821d754)
+                                          MappedZipFile::GetBasePtr() const
+                                          system/core/libziparchive/zip_archive.cc:1155:0
+#13 0x00006894 test.apk!libziparchive.so (offset 0x9a000) (BuildId: bad01245)
+#14 0x0033303c test.apk (offset 0x234000)
+#15 0x0002a019 libc.so
+pthread_atfork
+bionic/libc/arch-common/bionic/pthread_atfork.h:33:10
+#16 0x0002a019 libc.so (pthread_atfork)
+                        pthread_atfork
+                        bionic/libc/arch-common/bionic/pthread_atfork.h:33:10
+#17 0x0002a019 libc.so (pthread_atfork) (BuildId: cd193f754b8535bc662dd794f63b7891)
+                        pthread_atfork
+                        bionic/libc/arch-common/bionic/pthread_atfork.h:33:10
+#18 0x0002a019 libc.so (pthread_atfork) (BuildId: bad012345)
+#19 0x0002a019 libc.so!libc.so (pthread_atfork)
+                                pthread_atfork
+                                bionic/libc/arch-common/bionic/pthread_atfork.h:33:10

@@ -18,21 +18,24 @@ import pdb
 import signal
 import sys
 import traceback
+from types import FrameType
+from typing import Optional
 
 
-def attach_debugger(_signum, frame):
+def attach_debugger(_signum: int, frame: Optional[FrameType]) -> None:
     """Attaches pdb to the frame at the time of signalling."""
+    # mypy doesn't know that pdb.Pdb exists.
     pdb.Pdb().set_trace(frame)
 
 
-def dump_trace(_signum, frame):
+def dump_trace(_signum: int, frame: Optional[FrameType]) -> None:
     """Dumps a stack trace of the frame at the time of signalling."""
-    msg = 'Traceback:\n'
-    msg += ''.join(traceback.format_stack(frame))
+    msg = "Traceback:\n"
+    msg += "".join(traceback.format_stack(frame))
     sys.stderr.write(msg)
 
 
-def register_debug_handler(signum):
+def register_debug_handler(signum: int) -> None:
     """Registers a signal handler that will attach the debugger.
 
     Args:
@@ -41,7 +44,7 @@ def register_debug_handler(signum):
     signal.signal(signum, attach_debugger)
 
 
-def register_trace_handler(signum):
+def register_trace_handler(signum: int) -> None:
     """Registers a signal that will dump a stack trace.
 
     Args:

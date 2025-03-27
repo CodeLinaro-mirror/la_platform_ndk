@@ -25,8 +25,13 @@
  * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#ifndef CPU_FEATURES_H
-#define CPU_FEATURES_H
+
+#pragma once
+
+/*
+ * This library is provided only for legacy support. For a maintained library,
+ * migrate to https://github.com/google/cpu_features.
+ */
 
 #include <sys/cdefs.h>
 #include <stdint.h>
@@ -44,6 +49,7 @@ typedef enum {
     ANDROID_CPU_FAMILY_ARM64,
     ANDROID_CPU_FAMILY_X86_64,
     ANDROID_CPU_FAMILY_MIPS64,
+    ANDROID_CPU_FAMILY_RISCV64,
 
     ANDROID_CPU_FAMILY_MAX  /* do not remove */
 
@@ -319,5 +325,3 @@ extern int android_setCpuArm(int      cpu_count,
 #endif
 
 __END_DECLS
-
-#endif /* CPU_FEATURES_H */

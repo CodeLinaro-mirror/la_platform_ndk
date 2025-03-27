@@ -1,11 +1,13 @@
-def build_broken(abi, platform, toolchain):
-    if platform >= 21:
-        return 'android-{}'.format(platform), 'http://b/24468267'
-    return None, None
+import ndk.abis
+from ndk.test.buildtest.case import Test
 
 
-def run_broken(abi, device_api, toolchain, subtest=None):
-    if (abi == 'x86' and toolchain == 'clang' and
-        subtest == 'static-executable'):
-        return ' '.join([abi, toolchain]), 'http://b/30101473'
-    return None, None
+def extra_cmake_flags() -> list[str]:
+    # Required for static executables.
+    return ["-DANDROID_PLATFORM=latest"]
+
+
+def override_runtime_minsdkversion(test: Test) -> int | None:
+    # We build as latest because static executables require that, but static executables
+    # are compatible with old OS versions.
+    return ndk.abis.min_api_for_abi(test.config.abi)

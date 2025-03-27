@@ -1,0 +1,13 @@
+********** Crash dump: **********
+Build fingerprint: 'Android/aosp_taimen/taimen:R/QT/eng.cferri.20191008.133647:userdebug/test-keys'
+Abort message: '==21586==ERROR: HWAddressSanitizer: tag-mismatch on address 0x0042a0807af0 at pc 0x007b23b8786c
+#0 0x7b138 /data/app/com.example.hellohwasan-MBZF010sEpmy2cZikx49pQ==/lib/arm64/libc64.so
+android_set_abort_message
+bionic/libc/bionic/android_set_abort_message.cpp:88:3
+#1 0x198ccc /apex/com.android.art/lib64/libart.so
+#0 0x7b15c /data/app/com.example.hellohwasan-MBZF010sEpmy2cZikx49pQ==/lib/arm64/libc64.so
+android_set_abort_message
+bionic/libc/bionic/android_set_abort_message.cpp:92:37
+#00 0x000000000007f3ec /system/lib64/bootstrap/libc64.so (abort+172) (BuildId: d0080326fbef53980488aedd32b02f5d)
+                                                          abort
+                                                          bionic/libc/bionic/abort.cpp:50:3
