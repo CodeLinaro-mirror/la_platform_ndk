@@ -1,7 +1,7 @@
 # Build System Maintainers Guide
 
 The latest version of this document is available at
-https://android.googlesource.com/platform/ndk/+/master/docs/BuildSystemMaintainers.md.
+https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/BuildSystemMaintainers.md.
 Ensure that you are using the version that corresponds to your NDK. Replace
 `master` in the URL with the appropriate NDK release branch. For example, the
 NDK r28 version of this document is located at

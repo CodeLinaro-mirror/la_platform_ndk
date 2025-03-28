@@ -166,7 +166,7 @@ if(NOT ANDROID_TOOLCHAIN)
   set(ANDROID_TOOLCHAIN clang)
 elseif(ANDROID_TOOLCHAIN STREQUAL gcc)
   message(FATAL_ERROR "GCC is no longer supported. See "
-  "https://android.googlesource.com/platform/ndk/+/master/docs/ClangMigration.md.")
+  "https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/ClangMigration.md.")
 endif()
 
 if(ANDROID_NATIVE_API_LEVEL AND NOT ANDROID_PLATFORM)

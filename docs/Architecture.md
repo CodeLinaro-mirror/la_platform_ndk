@@ -1,7 +1,7 @@
 # Architecture
 
 The latest version of this document is available at
-https://android.googlesource.com/platform/ndk/+/master/docs/Architecture.md.
+https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/Architecture.md.
 
 The core NDK is the zip file that is built in this repository and distributed by
 the SDK manager. It bundles the outputs of several other projects into a package

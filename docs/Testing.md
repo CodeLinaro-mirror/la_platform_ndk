@@ -1,7 +1,7 @@
 # Testing the NDK
 
 The latest version of this document is available at
-https://android.googlesource.com/platform/ndk/+/master/docs/Testing.md.
+https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/Testing.md.
 
 The NDK tests are built as part of a normal build (with `checkbuild.py`) and run
 with `run_tests.py`. See [Building.md] for more instructions on building the

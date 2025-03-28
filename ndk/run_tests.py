@@ -76,7 +76,7 @@ def print_test_stats(test_plan: TestPlan) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    doc = "https://android.googlesource.com/platform/ndk/+/master/docs/Testing.md"
+    doc = "https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/Testing.md"
     parser = argparse.ArgumentParser(epilog="See {} for more information.".format(doc))
 
     def PathArg(path: str) -> Path:
