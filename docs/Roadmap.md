@@ -319,7 +319,7 @@ Removed support for API levels lower than 14 (Android 4.0).
 
 Added [unified headers] (opt-in).
 
-[unified headers]: https://android.googlesource.com/platform/ndk/+/master/docs/UnifiedHeaders.md
+[unified headers]: https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/UnifiedHeaders.md
 
 ### NDK r13
 

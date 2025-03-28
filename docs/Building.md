@@ -1,7 +1,7 @@
 # Building the NDK
 
 The latest version of this document is available at
-https://android.googlesource.com/platform/ndk/+/master/docs/Building.md.
+https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/Building.md.
 
 Both Linux and Windows NDKs are built on Linux machines. Windows host binaries
 are cross-compiled with MinGW.

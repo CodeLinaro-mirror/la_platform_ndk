@@ -6,7 +6,7 @@ latest stable version and the preview release of the next stable version are
 listed on our wiki: https://github.com/android-ndk/ndk/wiki#downloads.
 
 Make sure your issue isn't on the list of common problems before filing a bug:
-https://android.googlesource.com/platform/ndk/+/master/docs/user/common_problems.md
+https://developer.android.com/ndk/guides/common-problems
 
 Delete everything above this line before submitting.
 

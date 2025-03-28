@@ -1,7 +1,7 @@
 # Platform APIs
 
 The latest version of this document is available at
-https://android.googlesource.com/platform/ndk/+/master/docs/PlatformApis.md.
+https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/PlatformApis.md.
 
 ## Implications of Adding a New Platform API
 
@@ -158,7 +158,7 @@ the public libraries list. This test can be found at
 `cts/tests/tests/jni/src/android/jni/cts/LinkerNamespacesHelper.java`. Simply
 add your library to the `PUBLIC_SYSTEM_LIBRARIES` list in that file.
 
-[bionic/libc/Android.bp]: https://android.googlesource.com/platform/bionic/+/master/libc/Android.bp
+[bionic/libc/Android.bp]: https://android.googlesource.com/platform/bionic/+/main/libc/Android.bp
 
 ### Making sure it works
 

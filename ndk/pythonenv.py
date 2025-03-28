@@ -19,7 +19,7 @@ import site
 import sys
 import textwrap
 
-PYTHON_DOCS = "https://android.googlesource.com/platform/ndk/+/master/docs/Building.md#python-environment-setup"
+PYTHON_DOCS = "https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/Building.md#python-environment-setup"
 
 
 def ensure_poetry_if_available() -> None:

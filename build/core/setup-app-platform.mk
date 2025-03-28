@@ -122,7 +122,7 @@ ifdef APP_MANIFEST
             android:minSdkVersion $(_minsdkversion) in $(APP_MANIFEST). NDK \
             binaries will *not* be compatible with devices older than \
             $(APP_PLATFORM). See \
-            https://android.googlesource.com/platform/ndk/+/master/docs/user/common_problems.md \
+            https://developer.android.com/ndk/guides/common-problems \
             for more information.)
     endif
 endif

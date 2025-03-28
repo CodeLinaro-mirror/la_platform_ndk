@@ -1,7 +1,7 @@
 # Onboarding
 
 The latest version of this document is available at
-https://android.googlesource.com/platform/ndk/+/master/docs/Onboarding.md.
+https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/Onboarding.md.
 
 Welcome to the Android NDK! This guide will explain how to get started working
 on the NDK (if you want to work *with* the NDK, see the [user

@@ -1,7 +1,7 @@
 # Working with the NDK Toolchains
 
 The latest version of this document is available at
-https://android.googlesource.com/platform/ndk/+/master/docs/Toolchains.md.
+https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/Toolchains.md.
 
 The LLVM toolchain shipped in the NDK is not built as a part of the NDK build
 process. Instead is it built separately and checked into git as a prebuilt that
@@ -28,7 +28,7 @@ cannot be built from the NDK tree. The output tarball is extracted to
 `prebuilts/clang/host/$HOST/clang-$REVISION`. `checkbuild.py toolchain`
 repackages this into the NDK out directory.
 
-[Android LLVM Readme]: https://android.googlesource.com/toolchain/llvm_android/+/master/README.md
+[Android LLVM Readme]: https://android.googlesource.com/toolchain/llvm_android/+/refs/heads/mirror-goog-main-llvm-toolchain-source/README.md
 
 ### Updating to a New Clang
 
@@ -40,7 +40,7 @@ build server to `prebuilts/clang` (see the [update-prebuilts.py]). The LLVM team
 will handle installing the new toolchain to prebuilts, but the NDK team usually
 makes the change to migrate to the new toolchain as described below.
 
-[update-prebuilts.py]: https://android.googlesource.com/toolchain/llvm_android/+/master/update-prebuilts.py
+[update-prebuilts.py]: https://android.googlesource.com/toolchain/llvm_android/+/refs/heads/mirror-goog-main-llvm-toolchain-source/update-prebuilts.py
 
 ```bash
 # Edit ndk/toolchains.py and update `CLANG_VERSION`.

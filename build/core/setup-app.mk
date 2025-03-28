@@ -65,7 +65,7 @@ else
     ifneq ($(_bad_abis),)
         ifneq ($(filter $(_bad_abis),armeabi-v7a-hard),)
             $(call __ndk_info,armeabi-v7a-hard is no longer supported. Use armeabi-v7a.)
-            $(call __ndk_info,See https://android.googlesource.com/platform/ndk/+/master/docs/HardFloatAbi.md)
+            $(call __ndk_info,See https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/HardFloatAbi.md)
         else ifneq ($(filter $(_bad_abis),armeabi),)
             $(call __ndk_info,The armeabi ABI is no longer supported. Use armeabi-v7a.)
         else ifneq ($(filter $(_bad_abis),mips mips64),)
