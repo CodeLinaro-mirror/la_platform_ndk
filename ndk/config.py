@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-major = 29
+major = 30
 hotfix = 0
 hotfix_str = chr(ord("a") + hotfix) if hotfix else ""
 beta = 0
