@@ -10,7 +10,7 @@ directly, see the [build system maintainers guide].
 
 [GitHub]: https://github.com/android/ndk/issues
 [build system maintainers guide]:
-  https://android.googlesource.com/platform/ndk/+/master/docs/BuildSystemMaintainers.md
+  https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/BuildSystemMaintainers.md
 
 ## Announcements
 
