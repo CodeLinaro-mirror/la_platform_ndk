@@ -34,9 +34,9 @@ from typing import ContextManager
 
 import click
 from aiohttp import ClientSession
-from fetchartifact import fetch_artifact_chunked
 
 from ndk.ext.subprocess import async_run
+from ndk.fetchartifact import fetch_artifact_chunked
 from ndk.hosts import Host
 
 

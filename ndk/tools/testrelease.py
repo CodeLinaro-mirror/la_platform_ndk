@@ -34,7 +34,6 @@ from typing import ContextManager
 
 import click
 from aiohttp import ClientSession
-from fetchartifact import DEFAULT_CHUNK_SIZE, ArtifactDownloader
 from rich.console import Group
 from rich.live import Live
 from rich.progress import (
@@ -50,6 +49,7 @@ from rich.progress import (
 )
 
 from ndk.ext.subprocess import async_run
+from ndk.fetchartifact import DEFAULT_CHUNK_SIZE, ArtifactDownloader
 from ndk.hosts import Host
 from ndk.paths import NDK_DIR
 

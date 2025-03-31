@@ -29,8 +29,8 @@ from pathlib import Path
 from typing import Sequence
 
 from aiohttp import ClientSession
-from fetchartifact import fetch_artifact_chunked
 
+from ndk.fetchartifact import fetch_artifact_chunked
 from ndk.paths import ANDROID_DIR
 from ndk.platforms import API_LEVEL_ALIASES, MAX_API_LEVEL, MIN_API_LEVEL
 
