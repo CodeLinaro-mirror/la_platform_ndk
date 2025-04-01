@@ -12,7 +12,7 @@ develop = false
 
 [package.source]
 type = "directory"
-url = "../development/python-packages/adb"
+url = "sources/adb"
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -1123,4 +1123,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "417c888dcd3d7c58aa57c8b1a32386fe62a34b645526b6d693e56332a6aa80e3"
+content-hash = "1e48cbc6febbd130c0ea954fe2d3731e560901affa312b5c4492d1e23ab0f9ba"

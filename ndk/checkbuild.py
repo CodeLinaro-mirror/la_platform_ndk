@@ -30,7 +30,6 @@ import multiprocessing
 import os
 import re
 import shutil
-import site
 import stat
 import subprocess
 import sys
@@ -299,8 +298,6 @@ def build_ndk_tests(out_dir: Path, dist_dir: Path, args: argparse.Namespace) -> 
     ndk_dir = ndk.paths.get_install_path(out_dir)
     test_src_dir = ndk.paths.ndk_path("tests")
     test_out_dir = out_dir / "tests"
-
-    site.addsitedir(str(ndk_dir / "python-packages"))
 
     test_options = ndk.test.spec.TestOptions(
         test_src_dir,
@@ -1656,13 +1653,6 @@ class NdkBuild(ndk.builds.PackageModule):
 
 
 @register
-class PythonPackages(ndk.builds.PackageModule):
-    name = "python-packages"
-    install_path = Path("python-packages")
-    src = ANDROID_DIR / "development/python-packages"
-
-
-@register
 class SystemStl(ndk.builds.PackageModule):
     name = "system-stl"
     install_path = Path("sources/cxx-stl/system")
@@ -1731,7 +1721,7 @@ class NdkGdb(ndk.builds.PythonApplication):
     package = NDK_DIR / "ndkgdb.py"
     main = "ndkgdb:main"
     py_pkg_deps = [
-        ANDROID_DIR / "development/python-packages/adb/adb",
+        NDK_DIR / "sources/adb/adb",
         NDK_DIR / "sources/gdbrunner/gdbrunner",
     ]
     deps = {"ndk-gdb-shortcut", "ndk-lldb-shortcut"}

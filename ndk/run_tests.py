@@ -363,9 +363,6 @@ async def main() -> None:
         handlers = [RichHandler(level=log_level)]
     logging.basicConfig(level=log_level, handlers=handlers)
 
-    python_packages = args.ndk / "python-packages"
-    site.addsitedir(python_packages)
-
     total_timer = Timer()
     with total_timer:
         results = await run_tests(args)

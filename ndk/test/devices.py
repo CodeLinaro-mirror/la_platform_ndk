@@ -25,8 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-import ndk.paths
 from ndk.abis import Abi
+from ndk.paths import NDK_DIR
 from ndk.test.spec import BuildConfiguration
 from ndk.workqueue import ShardingGroup, Worker, WorkQueue
 
@@ -35,7 +35,7 @@ try:
 except ImportError:
     import site
 
-    site.addsitedir(str(ndk.paths.android_path("development/python-packages/adb")))
+    site.addsitedir(str(NDK_DIR / "sources/adb"))
     import adb  # pylint: disable=import-error,ungrouped-imports
 
 
