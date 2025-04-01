@@ -439,7 +439,7 @@ develop = false
 
 [package.source]
 type = "directory"
-url = "../development/python-packages/gdbrunner"
+url = "sources/gdbrunner"
 
 [[package]]
 name = "idna"
@@ -1123,4 +1123,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "ce1d9be349738ab79d9e5226069c6f699686348b9016f1899b75bd1a074e31d5"
+content-hash = "417c888dcd3d7c58aa57c8b1a32386fe62a34b645526b6d693e56332a6aa80e3"

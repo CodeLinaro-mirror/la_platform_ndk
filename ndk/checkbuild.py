@@ -1732,7 +1732,7 @@ class NdkGdb(ndk.builds.PythonApplication):
     main = "ndkgdb:main"
     py_pkg_deps = [
         ANDROID_DIR / "development/python-packages/adb/adb",
-        ANDROID_DIR / "development/python-packages/gdbrunner/gdbrunner",
+        NDK_DIR / "sources/gdbrunner/gdbrunner",
     ]
     deps = {"ndk-gdb-shortcut", "ndk-lldb-shortcut"}
 

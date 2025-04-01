@@ -20,13 +20,13 @@ pylint = "^3.1.0"
 pytest = "^8.1.1"
 black = "^24.2.0"
 isort = "^5.13.2"
-gdbrunner = { path = "../development/python-packages/gdbrunner" }
 adb = { path = "../development/python-packages/adb" }
 pytest-cov = "^4.1.0"
 rich = "^13.9.2"
 pytest-asyncio = "^0.25.3"
 aiohttp = "^3.11.15"
 pytest-aiohttp = "^1.1.0"
+gdbrunner = {path = "sources/gdbrunner"}
 
 [tool.black]
 # The default includes "build", which excludes both build/ and tests/build.
