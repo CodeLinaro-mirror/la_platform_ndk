@@ -19,10 +19,12 @@ directly, see the [build system maintainers guide].
 
 ## r28b
 
+- Updated LLVM to clang-r530567d. See `clang_source_info.md` in the toolchain
+  directory for version information.
+  - [Issue 2136]: Fixed `limits.h` not including any of the `LONG_LONG` related
+    macros.
 - [Issue 1591]: libz.a and libdl.a are no longer built with LTO, resolving
   occasional linking failures resulting from LLVM version desynchronization.
-- [Issue 2136]: Fixed `limits.h` not including any of the `LONG_LONG` related
-  macros.
 
 [Issue 1591]: https://github.com/android/ndk/issues/1591
 [Issue 2136]: https://github.com/android/ndk/issues/2136
