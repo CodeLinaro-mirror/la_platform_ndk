@@ -20,7 +20,6 @@ from __future__ import absolute_import, print_function
 import argparse
 import logging
 import shutil
-import site
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
