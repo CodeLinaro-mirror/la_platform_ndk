@@ -44,8 +44,7 @@ profile = "black"
 
 [tool.mypy]
 check_untyped_defs = true
-# TODO: Investigate fixing type signatures for mocks.
-# disallow_any_decorated = True
+disallow_any_decorated = true
 # This flags a *lot* of things since things like json.load return Any.
 # disallow_any_expr = True
 disallow_any_generics = true
