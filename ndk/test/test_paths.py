@@ -18,9 +18,9 @@ from __future__ import absolute_import
 
 import unittest
 from pathlib import Path
-from unittest import mock
 
 import ndk.config
+import ndk.ext.os
 import ndk.hosts
 import ndk.paths
 
@@ -34,16 +34,15 @@ class GetInstallPathTest(unittest.TestCase):
     def tearDown(self) -> None:
         ndk.config.release = self.saved_release
 
-    @mock.patch("ndk.paths.get_out_dir")
-    def test_inferred_out_dir(self, mock_get_out_dir: mock.Mock) -> None:
+    def test_inferred_out_dir(self) -> None:
         """Tests that the correct path is returned for an inferred out_dir"""
         out_dir = Path("foo")
-        mock_get_out_dir.return_value = out_dir
-        release = "android-ndk-" + self.release
-        self.assertEqual(
-            ndk.paths.get_install_path(),
-            out_dir / ndk.hosts.get_default_host().value / release,
-        )
+        with ndk.ext.os.modify_environ({"OUT_DIR": str(out_dir)}):
+            release = "android-ndk-" + self.release
+            self.assertEqual(
+                ndk.paths.get_install_path(),
+                (out_dir / ndk.hosts.get_default_host().value / release).resolve(),
+            )
 
     def test_supplied_out_dir(self) -> None:
         """Tests that the correct path is returned for a supplied out_dir"""
