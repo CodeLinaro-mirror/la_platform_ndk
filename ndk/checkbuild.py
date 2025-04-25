@@ -2152,7 +2152,9 @@ def build_number_arg(value: str) -> int:
     return int(value)
 
 
-def parse_args() -> Tuple[argparse.Namespace, List[str]]:
+def parse_args(
+    args: Sequence[str] | None = None,
+) -> Tuple[argparse.Namespace, List[str]]:
     parser = argparse.ArgumentParser(description=inspect.getdoc(sys.modules[__name__]))
 
     parser.add_argument(
@@ -2267,7 +2269,7 @@ def parse_args() -> Tuple[argparse.Namespace, List[str]]:
         help="NDK modules to build.",
     )
 
-    return parser.parse_known_args()
+    return parser.parse_known_args(args)
 
 
 def log_build_failure(log_path: Path, dist_dir: Path) -> None:
@@ -2466,11 +2468,11 @@ def get_directory_size(path: Path) -> int:
     return int(size_str)
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     total_timer = ndk.timer.Timer()
     total_timer.start()
 
-    args, module_names = parse_args()
+    args, module_names = parse_args(argv)
 
     ensure_python_environment()
 

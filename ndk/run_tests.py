@@ -21,7 +21,7 @@ import argparse
 import logging
 import shutil
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -74,7 +74,7 @@ def print_test_stats(test_plan: TestPlan) -> None:
             print(f"\t{build_system}: {len(tests)} tests")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     doc = "https://android.googlesource.com/platform/ndk/+/mirror-goog-main-ndk/docs/Testing.md"
     parser = argparse.ArgumentParser(epilog="See {} for more information.".format(doc))
 
@@ -205,7 +205,7 @@ def parse_args() -> argparse.Namespace:
         help="Directory to store packaged tests. Defaults to $DIST_DIR or ../out/dist",
     )
 
-    return parser.parse_args()
+    return parser.parse_args(args)
 
 
 class Results:
@@ -349,8 +349,8 @@ async def run_tests(args: argparse.Namespace) -> Results:
     return results
 
 
-async def main() -> None:
-    args = parse_args()
+async def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
 
     ensure_python_environment()
 
