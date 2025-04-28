@@ -1720,13 +1720,11 @@ class NdkGdb(ndk.builds.PythonApplication):
     name = "ndk-gdb"
     install_path = Path("prebuilt/{host}/bin/ndkgdb.pyz")
     notice = NDK_DIR / "NOTICE"
-    package = NDK_DIR / "ndkgdb.py"
-    main = "ndkgdb:main"
-    py_pkg_deps = [
-        NDK_DIR / "sources/adb/adb",
-        NDK_DIR / "sources/gdbrunner/gdbrunner",
-    ]
+    package = NDK_DIR / "sources/ndkgdb"
     deps = {"ndk-gdb-shortcut", "ndk-lldb-shortcut"}
+
+    # This is legacy code that isn't up to our current standards.
+    skip_lint = True
 
 
 @register
