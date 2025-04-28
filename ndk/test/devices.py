@@ -16,17 +16,14 @@
 """Device wrappers and device fleet management."""
 from __future__ import annotations
 
-import atexit
 import logging
 import os
 import re
 import shutil
 import subprocess
-import sys
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from ndk.abis import Abi
 from ndk.test.spec import BuildConfiguration
@@ -57,137 +54,6 @@ class ShellError(RuntimeError):
         self.stdout = stdout
         self.stderr = stderr
         self.exit_code = exit_code
-
-
-def get_devices(adb_path: str = "adb") -> list[str]:
-    with open(os.devnull, "wb") as devnull:
-        subprocess.check_call(
-            [adb_path, "start-server"], stdout=devnull, stderr=devnull
-        )
-    out = split_lines(subprocess.check_output([adb_path, "devices"]).decode("utf-8"))
-
-    # The first line of `adb devices` just says "List of attached devices", so
-    # skip that.
-    devices = []
-    for line in out[1:]:
-        if not line.strip():
-            continue
-        if "offline" in line:
-            continue
-
-        serial, _ = re.split(r"\s+", line, maxsplit=1)
-        devices.append(serial)
-    return devices
-
-
-def _get_unique_device(
-    product: str | None = None, adb_path: str = "adb"
-) -> AndroidDevice:
-    devices = get_devices(adb_path=adb_path)
-    if len(devices) != 1:
-        raise NoUniqueDeviceError()
-    return AndroidDevice(devices[0], product, adb_path)
-
-
-def _get_device_by_serial(
-    serial: str, product: str | None = None, adb_path: str = "adb"
-) -> AndroidDevice:
-    for device in get_devices(adb_path=adb_path):
-        if device == serial:
-            return AndroidDevice(serial, product, adb_path)
-    raise DeviceNotFoundError(serial)
-
-
-def get_device(
-    serial: str | None = None, product: str | None = None, adb_path: str = "adb"
-) -> AndroidDevice:
-    """Get a uniquely identified AndroidDevice if one is available.
-
-    Raises:
-        DeviceNotFoundError:
-            The serial specified by `serial` or $ANDROID_SERIAL is not
-            connected.
-
-        NoUniqueDeviceError:
-            Neither `serial` nor $ANDROID_SERIAL was set, and the number of
-            devices connected to the system is not 1. Having 0 connected
-            devices will also result in this error.
-
-    Returns:
-        An AndroidDevice associated with the first non-None identifier in the
-        following order of preference:
-
-        1) The `serial` argument.
-        2) The environment variable $ANDROID_SERIAL.
-        3) The single device connnected to the system.
-    """
-    if serial is not None:
-        return _get_device_by_serial(serial, product, adb_path)
-
-    android_serial = os.getenv("ANDROID_SERIAL")
-    if android_serial is not None:
-        return _get_device_by_serial(android_serial, product, adb_path)
-
-    return _get_unique_device(product, adb_path=adb_path)
-
-
-def _get_device_by_type(flag: str, adb_path: str) -> AndroidDevice:
-    with open(os.devnull, "wb") as devnull:
-        subprocess.check_call(
-            [adb_path, "start-server"], stdout=devnull, stderr=devnull
-        )
-    try:
-        serial = (
-            subprocess.check_output([adb_path, flag, "get-serialno"])
-            .decode("utf-8")
-            .strip()
-        )
-    except subprocess.CalledProcessError as ex:
-        raise RuntimeError("adb unexpectedly returned nonzero") from ex
-    if serial == "unknown":
-        raise NoUniqueDeviceError()
-    return _get_device_by_serial(serial, adb_path=adb_path)
-
-
-def get_usb_device(adb_path: str = "adb") -> AndroidDevice:
-    """Get the unique USB-connected AndroidDevice if it is available.
-
-    Raises:
-        NoUniqueDeviceError:
-            0 or multiple devices are connected via USB.
-
-    Returns:
-        An AndroidDevice associated with the unique USB-connected device.
-    """
-    return _get_device_by_type("-d", adb_path=adb_path)
-
-
-def get_emulator_device(adb_path: str = "adb") -> AndroidDevice:
-    """Get the unique emulator AndroidDevice if it is available.
-
-    Raises:
-        NoUniqueDeviceError:
-            0 or multiple emulators are running.
-
-    Returns:
-        An AndroidDevice associated with the unique running emulator.
-    """
-    return _get_device_by_type("-e", adb_path=adb_path)
-
-
-def split_lines(s: str) -> list[str]:
-    """Splits lines in a way that works even on Windows and old devices.
-
-    Windows will see \r\n instead of \n, old devices do the same, old devices
-    on Windows will see \r\r\n.
-    """
-    # rstrip is used here to workaround a difference between splitlines and
-    # re.split:
-    # >>> 'foo\n'.splitlines()
-    # ['foo']
-    # >>> re.split(r'\n', 'foo\n')
-    # ['foo', '']
-    return re.split(r"[\r\n]+", s.rstrip())
 
 
 def adb_server_version(adb_path: list[str] | None = None) -> int:
@@ -234,18 +100,10 @@ class AndroidDevice:
         self._features: list[str] | None = None
 
     @property
-    def linesep(self) -> str:
-        if self._linesep is None:
-            self._linesep = subprocess.check_output(
-                self.adb_cmd + ["shell", "echo"], encoding="utf-8"
-            )
-        return self._linesep
-
-    @property
     def features(self) -> list[str]:
         if self._features is None:
             try:
-                self._features = split_lines(self._simple_call(["features"]))
+                self._features = self._simple_call(["features"]).splitlines()
             except subprocess.CalledProcessError:
                 self._features = []
         return self._features
@@ -333,67 +191,6 @@ class AndroidDevice:
             exit_code, stdout = self._parse_shell_output(stdout)
         return exit_code, stdout, stderr
 
-    def shell_popen(
-        self,
-        cmd: list[str],
-        kill_atexit: bool = True,
-        preexec_fn: Callable[[], None] | None = None,
-        creationflags: int = 0,
-        **kwargs: Any,
-    ) -> subprocess.Popen[Any]:
-        """Calls `adb shell` and returns a handle to the adb process.
-
-        This function provides direct access to the subprocess used to run the
-        command, without special return code handling. Users that need the
-        return value must retrieve it themselves.
-
-        Args:
-            cmd: Array of command arguments to execute.
-            kill_atexit: Whether to kill the process upon exiting.
-            preexec_fn: Argument forwarded to subprocess.Popen.
-            creationflags: Argument forwarded to subprocess.Popen.
-            **kwargs: Arguments forwarded to subprocess.Popen.
-
-        Returns:
-            subprocess.Popen handle to the adb shell instance
-        """
-
-        command = self.adb_cmd + ["shell"] + cmd
-
-        # Make sure a ctrl-c in the parent script doesn't kill gdbserver.
-        if sys.platform == "win32":
-            creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            if preexec_fn is None:
-                preexec_fn = os.setpgrp
-            elif preexec_fn is not os.setpgrp:
-                fn = preexec_fn
-
-                def _wrapper() -> None:
-                    fn()
-                    os.setpgrp()
-
-                preexec_fn = _wrapper
-
-        p = subprocess.Popen(  # pylint: disable=subprocess-popen-preexec-fn
-            command,
-            creationflags=creationflags,
-            preexec_fn=preexec_fn,
-            **kwargs,
-        )
-
-        if kill_atexit:
-            atexit.register(p.kill)
-
-        return p
-
-    def install(self, filename: str, replace: bool = False) -> str:
-        cmd = ["install"]
-        if replace:
-            cmd.append("-r")
-        cmd.append(filename)
-        return self._simple_call(cmd)
-
     def push(
         self,
         local: str | list[str],
@@ -427,74 +224,8 @@ class AndroidDevice:
 
         return self._simple_call(cmd)
 
-    def pull(self, remote: str, local: str) -> str:
-        return self._simple_call(["pull", remote, local])
-
-    def sync(self, directory: str | None = None) -> str:
-        cmd = ["sync"]
-        if directory is not None:
-            cmd.append(directory)
-        return self._simple_call(cmd)
-
-    def tcpip(self, port: str) -> str:
-        return self._simple_call(["tcpip", port])
-
-    def usb(self) -> str:
-        return self._simple_call(["usb"])
-
-    def reboot(self) -> str:
-        return self._simple_call(["reboot"])
-
-    def remount(self) -> str:
-        return self._simple_call(["remount"])
-
-    def root(self) -> str:
-        return self._simple_call(["root"])
-
-    def unroot(self) -> str:
-        return self._simple_call(["unroot"])
-
-    def connect(self, host: str) -> str:
-        return self._simple_call(["connect", host])
-
-    def disconnect(self, host: str) -> str:
-        return self._simple_call(["disconnect", host])
-
-    def forward(self, local: str, remote: str) -> str:
-        return self._simple_call(["forward", local, remote])
-
-    def forward_list(self) -> str:
-        return self._simple_call(["forward", "--list"])
-
-    def forward_no_rebind(self, local: str, remote: str) -> str:
-        return self._simple_call(["forward", "--no-rebind", local, remote])
-
-    def forward_remove(self, local: str) -> str:
-        return self._simple_call(["forward", "--remove", local])
-
-    def forward_remove_all(self) -> str:
-        return self._simple_call(["forward", "--remove-all"])
-
-    def reverse(self, remote: str, local: str) -> str:
-        return self._simple_call(["reverse", remote, local])
-
-    def reverse_list(self) -> str:
-        return self._simple_call(["reverse", "--list"])
-
-    def reverse_no_rebind(self, local: str, remote: str) -> str:
-        return self._simple_call(["reverse", "--no-rebind", local, remote])
-
-    def reverse_remove_all(self) -> str:
-        return self._simple_call(["reverse", "--remove-all"])
-
-    def reverse_remove(self, remote: str) -> str:
-        return self._simple_call(["reverse", "--remove", remote])
-
-    def wait(self) -> str:
-        return self._simple_call(["wait-for-device"])
-
     def get_prop(self, prop_name: str) -> str | None:
-        output = split_lines(self.shell(["getprop", prop_name])[0])
+        output = self.shell(["getprop", prop_name])[0].splitlines()
         if len(output) != 1:
             raise RuntimeError(
                 "Too many lines in getprop output:\n" + "\n".join(output)
@@ -503,9 +234,6 @@ class AndroidDevice:
         if not value.strip():
             return None
         return value
-
-    def set_prop(self, prop_name: str, value: str) -> None:
-        self.shell(["setprop", prop_name, value])
 
     def logcat(self) -> str:
         """Returns the contents of logcat."""
