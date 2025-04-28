@@ -530,7 +530,7 @@ class PythonApplication(Module):
             shutil.copy(self.package, self._staging / self.package.name)
             (self._staging / "__init__.py").touch()
         else:
-            shutil.copytree(self.package, self._staging / self.package.name)
+            shutil.copytree(self.package, self._staging, dirs_exist_ok=True)
 
         for path in self.copy_to_python_path:
             if path.is_file():
