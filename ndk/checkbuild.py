@@ -820,10 +820,12 @@ class NdkWhich(ndk.builds.FileModule):
     src = NDK_DIR / "ndk-which"
 
 
-def iter_python_lint_paths() -> Iterator[Path]:
+def iter_python_lint_paths(lint: bool = False) -> Iterator[Path]:
     ndk_package_path = Path("ndk")
     yield ndk_package_path
     for app in iter_python_app_modules():
+        if lint and app.skip_lint:
+            continue
         if ndk_package_path not in app.package.parents:
             yield app.package
 
@@ -866,7 +868,7 @@ class Pylint(ndk.builds.LintModule):
             "--score=n",
             "build",
             "tests",
-            *iter_python_lint_paths(),
+            *iter_python_lint_paths(lint=True),
         ]
         subprocess.check_call(pylint)
 
@@ -884,7 +886,7 @@ class Mypy(ndk.builds.LintModule):
                 "mypy",
                 "--config-file",
                 str(ANDROID_DIR / "ndk/pyproject.toml"),
-                *iter_python_lint_paths(),
+                *iter_python_lint_paths(lint=True),
             ]
         )
 

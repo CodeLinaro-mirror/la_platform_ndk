@@ -520,6 +520,7 @@ class PythonApplication(Module):
     py_pkg_deps: list[Path] = []
     copy_to_python_path: list[Path] = []
     main: str | None = None
+    skip_lint: bool = False
 
     def build(self) -> None:
         if self._staging.exists():
