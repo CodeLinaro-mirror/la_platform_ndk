@@ -519,7 +519,7 @@ class PythonApplication(Module):
     package: Path
     py_pkg_deps: list[Path] = []
     copy_to_python_path: list[Path] = []
-    main: str
+    main: str | None = None
 
     def build(self) -> None:
         if self._staging.exists():
