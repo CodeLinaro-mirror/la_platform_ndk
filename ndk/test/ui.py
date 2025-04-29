@@ -20,7 +20,7 @@ import os
 from typing import Any, List
 
 from ndk.ansi import Console, font_bold, font_faint, font_reset
-from ndk.test.devices import Device
+from ndk.devenv.devices import Device
 from ndk.ui import AnsiUiRenderer, NonAnsiUiRenderer, Ui, UiRenderer
 from ndk.workqueue import ShardingWorkQueue, Worker
 

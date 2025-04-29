@@ -19,8 +19,9 @@ import traceback
 from pathlib import Path, PurePosixPath
 from typing import Optional, Tuple, Union
 
+# TODO: The parts of this module that use DeviceConfig should be moved into ndk.devenv.
+from ndk.devenv.devices import Device, DeviceConfig
 from ndk.test.config import DeviceTestConfig
-from ndk.test.devices import Device, DeviceConfig
 from ndk.test.spec import BuildConfiguration
 
 AdbResult = tuple[int, str, str, str]

@@ -18,7 +18,9 @@ import subprocess
 from pathlib import PurePosixPath
 
 import ndk.ui
-from ndk.test.devices import Device, DeviceFleet
+
+# TODO: This module should be moved into ndk.devenv.
+from ndk.devenv.devices import Device, DeviceFleet
 from ndk.workqueue import Worker, WorkQueue
 
 from .testgroup import TestGroup

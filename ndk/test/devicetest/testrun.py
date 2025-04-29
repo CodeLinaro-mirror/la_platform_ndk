@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-from ndk.test.devices import Device, DeviceShardingGroup
+
+# TODO: The parts of this module that use DeviceConfig should be moved into ndk.devenv.
+from ndk.devenv.devices import Device, DeviceShardingGroup
 from ndk.test.result import (
     ExpectedFailure,
     Failure,

@@ -16,7 +16,9 @@
 import logging
 
 from ndk.abis import Abi
-from ndk.test.devices import Device
+
+# TODO: This package should be moved into ndk.devenv.
+from ndk.devenv.devices import Device
 
 from ..deviceprovider import DeviceProvider
 from .acidsessionmanager import AcidSessionManager

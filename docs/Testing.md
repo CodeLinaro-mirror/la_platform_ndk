@@ -345,7 +345,7 @@ device:
 ```python
 from typing import Optional
 
-from ndk.test.devices import Device
+from ndk.devenv.devices import Device
 from ndk.test.types import Test
 
 

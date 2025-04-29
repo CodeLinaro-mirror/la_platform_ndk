@@ -1,7 +1,7 @@
 from typing import Optional
 
 from ndk.abis import Abi
-from ndk.test.devices import Device
+from ndk.devenv.devices import Device
 from ndk.test.devicetest.case import TestCase
 
 

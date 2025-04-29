@@ -22,8 +22,10 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from ndk.abis import Abi
+
+# TODO: This moduleshould be moved into ndk.devenv.
+from ndk.devenv.devices import Device, DeviceFleet, find_devices
 from ndk.test.deviceproviders.acid import AcidDeviceProvider
-from ndk.test.devices import Device, DeviceFleet, find_devices
 from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.spec import BuildConfiguration, TestSpec

@@ -19,7 +19,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, List, Optional, Tuple, Union
 
-from ndk.test.devices import DeviceConfig
+# TODO: The parts of this module that use DeviceConfig should be moved into ndk.devenv.
+from ndk.devenv.devices import DeviceConfig
 
 # Need to refactor to resolve the circular import between this module and
 # ndk.test.types.

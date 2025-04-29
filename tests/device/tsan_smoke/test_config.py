@@ -1,4 +1,4 @@
-from ndk.test.devices import Device
+from ndk.devenv.devices import Device
 from ndk.test.devicetest.case import TestCase
 
 

@@ -21,7 +21,9 @@ import time
 
 import ndk.ansi
 import ndk.test.ui
-from ndk.test.devices import Device, DeviceConfig, DeviceFleet, DeviceShardingGroup
+
+# TODO: This module should be moved into ndk.devenv.
+from ndk.devenv.devices import Device, DeviceConfig, DeviceFleet, DeviceShardingGroup
 from ndk.test.printers import Printer
 from ndk.test.report import Report
 from ndk.test.result import Failure, Skipped, TestResult, UnexpectedSuccess

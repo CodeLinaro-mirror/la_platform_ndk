@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-from ndk.test.devices import Device
+
+# TODO: This package should be moved into ndk.devenv.
+from ndk.devenv.devices import Device
 
 
 class AcidDevice(Device):

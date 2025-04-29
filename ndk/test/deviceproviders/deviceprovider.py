@@ -17,7 +17,9 @@
 from abc import ABC, abstractmethod
 
 from ndk.abis import Abi
-from ndk.test.devices import Device
+
+# TODO: This package should be moved into ndk.devenv.
+from ndk.devenv.devices import Device
 
 
 class DeviceProvider(ABC):
