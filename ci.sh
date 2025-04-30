@@ -3,7 +3,7 @@ set -e
 set -x
 THIS_DIR=`cd $(dirname $0) ; pwd -P`
 
-if [ $(uname) == "Darwin" ]; then
+if [ "$(uname)" == "Darwin" ]; then
     HOST=darwin-x86
 else
     HOST=linux-x86
