@@ -177,20 +177,20 @@ class TestRunner:
         # a warning. Then compare that list of devices against all our tests and
         # make sure each test is claimed by at least one device. For each
         # configuration that is unclaimed, print a warning.
+        with self.timing_report.timed("Device discovery"):
+            fleet = await find_devices(self.test_spec.devices)
+
+        await acquire_missing_devices(fleet)
+
+        if require_all_devices:
+            if not verify_have_all_requested_devices(fleet):
+                return "Some requested devices were not available."
+
+        for config in iter_configs_with_no_device(self.test_plan, fleet):
+            logger().warning("No device found for %s.", config)
+
         workqueue = WorkQueue()
         try:
-            with self.timing_report.timed("Device discovery"):
-                fleet = find_devices(self.test_spec.devices, workqueue)
-
-            await acquire_missing_devices(fleet)
-
-            if require_all_devices:
-                if not verify_have_all_requested_devices(fleet):
-                    return "Some requested devices were not available."
-
-            for config in iter_configs_with_no_device(self.test_plan, fleet):
-                logger().warning("No device found for %s.", config)
-
             preparer = DevicePreparer(fleet)
             if clean_devices:
                 with self.timing_report.timed("Clean device"):

@@ -9,11 +9,11 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Dict, List
 
 from ndk.abis import Abi
-from ndk.workqueue import Worker, WorkQueue
 
 from .device import Device
 from .devicefleet import DeviceFleet
@@ -24,11 +24,7 @@ def logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def create_device(_worker: Worker, serial: str) -> Device:
-    return asyncio.run(Device.from_serial(serial))
-
-
-def get_all_attached_devices(workqueue: WorkQueue) -> List[Device]:
+async def iter_attached_devices() -> AsyncIterator[Device]:
     """Returns a list of all connected devices."""
     if shutil.which("adb") is None:
         raise RuntimeError("Could not find adb.")
@@ -44,6 +40,7 @@ def get_all_attached_devices(workqueue: WorkQueue) -> List[Device]:
 
     # The first line of `adb devices` just says "List of attached devices", so
     # skip that.
+    device_creation_tasks = []
     for line in p.stdout.split("\n")[1:]:
         if not line.strip():
             continue
@@ -57,17 +54,12 @@ def get_all_attached_devices(workqueue: WorkQueue) -> List[Device]:
             logger().info("Ignoring unauthorized device: %s", serial)
             continue
 
-        # Caching all the device details via getprop can actually take quite a
-        # bit of time. Do it in parallel to minimize the cost.
-        workqueue.add_task(create_device, serial)
+        device_creation_tasks.append(asyncio.create_task(Device.from_serial(serial)))
 
-    devices = []
-    while not workqueue.finished():
-        device = workqueue.get_result()
+    for task in asyncio.as_completed(device_creation_tasks):
+        device = await task
         logger().info("Found device %s", device)
-        devices.append(device)
-
-    return devices
+        yield device
 
 
 def exclude_device(device: Device) -> bool:
@@ -79,9 +71,7 @@ def exclude_device(device: Device) -> bool:
     return device.serial in exclusion_list
 
 
-def find_devices(
-    sought_devices: Dict[int, List[Abi]], workqueue: WorkQueue
-) -> DeviceFleet:
+async def find_devices(sought_devices: Dict[int, List[Abi]]) -> DeviceFleet:
     """Detects connected devices and returns a set for testing.
 
     We get a list of devices by scanning the output of `adb devices` and
@@ -89,7 +79,7 @@ def find_devices(
     `sought_devices`.
     """
     fleet = DeviceFleet(sought_devices)
-    for device in get_all_attached_devices(workqueue):
+    async for device in iter_attached_devices():
         if not exclude_device(device):
             fleet.add_device(device)
 
