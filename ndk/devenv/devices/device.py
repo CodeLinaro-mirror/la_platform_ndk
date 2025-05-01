@@ -35,10 +35,10 @@ class Device:
         return self._config
 
     def shell_nocheck(self, cmd: list[str]) -> tuple[int, str, str]:
-        return self.adb.shell_nocheck(cmd)
+        return self.adb.shell_nocheck_sync(cmd)
 
     def shell(self, cmd: list[str]) -> tuple[str, str]:
-        return self.adb.shell(cmd)
+        return self.adb.shell_sync(cmd)
 
     def clear_logcat(self) -> None:
         self.adb.clear_logcat()

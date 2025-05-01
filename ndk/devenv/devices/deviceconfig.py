@@ -34,7 +34,7 @@ class DeviceConfig:
 
     @staticmethod
     async def for_device(adb: AdbDeviceInterface) -> DeviceConfig:
-        props = adb.sysprops()
+        props = await adb.sysprops()
         # 64-bit devices list their ABIs differently than 32-bit devices.
         # Check all the possible places for stashing ABI info and merge
         # them.
@@ -58,7 +58,8 @@ class DeviceConfig:
         return DeviceConfig(
             abis=tuple(sorted(list(abis))),
             version=int(props["ro.build.version.sdk"]),
-            supports_mte=adb.shell_nocheck(["grep", " mte", "/proc/cpuinfo"])[0] == 0,
+            supports_mte=(await adb.shell_nocheck(["grep", " mte", "/proc/cpuinfo"]))[0]
+            == 0,
             build_id=props["ro.build.id"],
             product_name=props["ro.product.name"],
             is_debuggable=int(props["ro.debuggable"]) != 0,

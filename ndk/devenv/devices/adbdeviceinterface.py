@@ -1,6 +1,7 @@
 # Copyright (C) 2015 The Android Open Source Project
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 import logging
 import re
 import subprocess
@@ -127,7 +128,7 @@ class AdbDeviceInterface:
             self.adb_cmd + cmd, stderr=subprocess.STDOUT
         ).decode("utf-8")
 
-    def shell(self, cmd: list[str]) -> tuple[str, str]:
+    async def shell(self, cmd: list[str]) -> tuple[str, str]:
         """Calls `adb shell`
 
         Args:
@@ -140,12 +141,55 @@ class AdbDeviceInterface:
         Raises:
             ShellError: the exit code was non-zero.
         """
-        exit_code, stdout, stderr = self.shell_nocheck(cmd)
+        exit_code, stdout, stderr = await self.shell_nocheck(cmd)
         if exit_code != 0:
             raise ShellError(cmd, stdout, stderr, exit_code)
         return stdout, stderr
 
-    def shell_nocheck(self, cmd: list[str]) -> tuple[int, str, str]:
+    def shell_sync(self, cmd: list[str]) -> tuple[str, str]:
+        """Calls `adb shell`
+
+        Args:
+            cmd: command to execute as a list of strings.
+
+        Returns:
+            A (stdout, stderr) tuple. Stderr may be combined into stdout
+            if the device doesn't support separate streams.
+
+        Raises:
+            ShellError: the exit code was non-zero.
+        """
+        exit_code, stdout, stderr = self.shell_nocheck_sync(cmd)
+        if exit_code != 0:
+            raise ShellError(cmd, stdout, stderr, exit_code)
+        return stdout, stderr
+
+    async def shell_nocheck(self, cmd: list[str]) -> tuple[int, str, str]:
+        """Calls `adb shell`
+
+        Args:
+            cmd: command to execute as a list of strings.
+
+        Returns:
+            An (exit_code, stdout, stderr) tuple. Stderr may be combined
+            into stdout if the device doesn't support separate streams.
+        """
+        cmd = self._make_shell_cmd(cmd)
+        logging.info(" ".join(cmd))
+        p = await asyncio.create_subprocess_exec(
+            *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        stdout_bytes, stderr_bytes = await p.communicate()
+        stdout = stdout_bytes.decode("utf-8")
+        stderr = stderr_bytes.decode("utf-8")
+        exit_code = await p.wait()
+        if not self.has_shell_protocol():
+            # Old versions of adb (pre 24?) did not propagate error codes from the
+            # device.
+            exit_code, stdout = self._parse_shell_output(stdout)
+        return exit_code, stdout, stderr
+
+    def shell_nocheck_sync(self, cmd: list[str]) -> tuple[int, str, str]:
         """Calls `adb shell`
 
         Args:
@@ -200,9 +244,9 @@ class AdbDeviceInterface:
 
         return self._simple_call(cmd)
 
-    def sysprops(self) -> dict[str, str]:
+    async def sysprops(self) -> dict[str, str]:
         props = {}
-        output = self.shell(["getprop"])[0]
+        output = (await self.shell(["getprop"]))[0]
         for line in output.splitlines():
             # Values can include newlines, so keys and values are bracketed. For now it
             # seems like we don't need any of those properties, so just ignore them
