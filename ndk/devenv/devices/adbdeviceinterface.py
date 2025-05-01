@@ -3,7 +3,6 @@
 
 import asyncio
 import logging
-import re
 import subprocess
 
 
@@ -31,18 +30,6 @@ class ShellError(RuntimeError):
         self.stdout = stdout
         self.stderr = stderr
         self.exit_code = exit_code
-
-
-def adb_server_version(adb_path: list[str] | None = None) -> int:
-    """Get the version of adb (in terms of ADB_SERVER_VERSION)."""
-
-    adb_path = adb_path if adb_path is not None else ["adb"]
-    version_output = subprocess.check_output(adb_path + ["version"], encoding="utf-8")
-    pattern = r"^Android Debug Bridge version 1.0.(\d+)$"
-    result = re.match(pattern, version_output.splitlines()[0])
-    if not result:
-        return 0
-    return int(result.group(1))
 
 
 class AdbDeviceInterface:
@@ -86,7 +73,7 @@ class AdbDeviceInterface:
         return self._features
 
     def has_shell_protocol(self) -> bool:
-        return adb_server_version(self.adb_cmd) >= 35 and "shell_v2" in self.features
+        return "shell_v2" in self.features
 
     def _make_shell_cmd(self, user_cmd: list[str]) -> list[str]:
         command = self.adb_cmd + ["shell"] + user_cmd
