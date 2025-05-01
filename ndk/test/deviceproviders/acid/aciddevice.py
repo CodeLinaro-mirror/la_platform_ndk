@@ -32,6 +32,6 @@ class AcidDevice(Device):
         self.session_id = session_id
 
     @staticmethod
-    def create(session_id: str, serial: str) -> AcidDevice:
+    async def create(session_id: str, serial: str) -> AcidDevice:
         adb = AdbDeviceInterface(serial)
-        return AcidDevice(session_id, serial, DeviceConfig.for_device(adb), adb)
+        return AcidDevice(session_id, serial, await DeviceConfig.for_device(adb), adb)

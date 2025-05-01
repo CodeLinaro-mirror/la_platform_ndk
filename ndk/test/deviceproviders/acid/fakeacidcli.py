@@ -42,7 +42,7 @@ class FakeAcidCli(AcidCli):
             )
         return "\n".join(lines)
 
-    def factory_for_session_manager(
+    async def factory_for_session_manager(
         self, session_id: str, _serial: str
     ) -> FakeAcidDevice:
         return self.connected[session_id]

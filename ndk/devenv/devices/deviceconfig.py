@@ -33,7 +33,7 @@ class DeviceConfig:
         return True
 
     @staticmethod
-    def for_device(adb: AdbDeviceInterface) -> DeviceConfig:
+    async def for_device(adb: AdbDeviceInterface) -> DeviceConfig:
         # 64-bit devices list their ABIs differently than 32-bit devices.
         # Check all the possible places for stashing ABI info and merge
         # them.

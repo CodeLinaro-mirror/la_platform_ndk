@@ -3,6 +3,7 @@
 """Device wrappers and device fleet management."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -24,7 +25,7 @@ def logger() -> logging.Logger:
 
 
 def create_device(_worker: Worker, serial: str) -> Device:
-    return Device.from_serial(serial)
+    return asyncio.run(Device.from_serial(serial))
 
 
 def get_all_attached_devices(workqueue: WorkQueue) -> List[Device]:

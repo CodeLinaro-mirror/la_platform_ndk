@@ -15,7 +15,7 @@
 #
 import asyncio
 import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import timedelta
 from typing import TypeAlias
 
@@ -24,7 +24,7 @@ from ndk.abis import Abi
 from .acidcli import AcidCli
 from .aciddevice import AcidDevice
 
-AcidDeviceFactory: TypeAlias = Callable[[str, str], AcidDevice]
+AcidDeviceFactory: TypeAlias = Callable[[str, str], Awaitable[AcidDevice]]
 
 
 class AcidSessionManager:
@@ -79,7 +79,7 @@ class AcidSessionManager:
             if session_id in previous_devices:
                 self.last_scanned_devices[session_id] = previous_devices[session_id]
             else:
-                self.last_scanned_devices[session_id] = self.device_factory(
+                self.last_scanned_devices[session_id] = await self.device_factory(
                     session_id, adb_endpoint
                 )
 

@@ -27,9 +27,9 @@ class Device:
         self._config = config
 
     @staticmethod
-    def from_serial(serial: str) -> Device:
+    async def from_serial(serial: str) -> Device:
         adb = AdbDeviceInterface(serial)
-        return Device(serial, DeviceConfig.for_device(adb), adb)
+        return Device(serial, await DeviceConfig.for_device(adb), adb)
 
     def config(self) -> DeviceConfig:
         return self._config
