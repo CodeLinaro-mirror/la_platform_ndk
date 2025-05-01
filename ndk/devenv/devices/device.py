@@ -8,16 +8,13 @@ from .adbdeviceinterface import AdbDeviceInterface
 from .deviceconfig import DeviceConfig
 
 
-class Device(AdbDeviceInterface):
+class Device:
     """A device to be used for testing."""
-
-    # We have no type information for the adb module so mypy can't reason about
-    # it. At least let it know that there's a serial property that is a string.
-    serial: str
 
     # pylint: disable=no-member
     def __init__(self, serial: str, precache: bool = False) -> None:
-        super().__init__(serial)
+        self.adb = AdbDeviceInterface(serial)
+        self.serial = serial
         self._did_cache = False
         self._cached_abis: list[Abi] | None = None
         self._ro_build_characteristics: str | None = None
@@ -37,12 +34,16 @@ class Device(AdbDeviceInterface):
     def cache_properties(self) -> None:
         """Caches the device's system properties."""
         if not self._did_cache:
-            self._ro_build_characteristics = self.get_prop("ro.build.characteristics")
-            self._ro_build_id = self.get_prop("ro.build.id")
-            self._ro_build_version_sdk = self.get_prop("ro.build.version.sdk")
-            self._ro_build_version_codename = self.get_prop("ro.build.version.codename")
-            self._ro_debuggable = self.get_prop("ro.debuggable")
-            self._ro_product_name = self.get_prop("ro.product.name")
+            self._ro_build_characteristics = self.adb.get_prop(
+                "ro.build.characteristics"
+            )
+            self._ro_build_id = self.adb.get_prop("ro.build.id")
+            self._ro_build_version_sdk = self.adb.get_prop("ro.build.version.sdk")
+            self._ro_build_version_codename = self.adb.get_prop(
+                "ro.build.version.codename"
+            )
+            self._ro_debuggable = self.adb.get_prop("ro.debuggable")
+            self._ro_product_name = self.adb.get_prop("ro.product.name")
             self._did_cache = True
 
             # 64-bit devices list their ABIs differently than 32-bit devices.
@@ -55,7 +56,7 @@ class Device(AdbDeviceInterface):
             ]
             abis: set[Abi] = set()
             for abi_prop in abi_properties:
-                value = self.get_prop(abi_prop)
+                value = self.adb.get_prop(abi_prop)
                 if value is not None:
                     abis.update([Abi(s) for s in value.split(",")])
 
@@ -67,8 +68,23 @@ class Device(AdbDeviceInterface):
 
             self._cached_abis = sorted(list(abis))
             self._supports_mte = (
-                self.shell_nocheck(["grep", " mte", "/proc/cpuinfo"])[0] == 0
+                self.adb.shell_nocheck(["grep", " mte", "/proc/cpuinfo"])[0] == 0
             )
+
+    def shell_nocheck(self, cmd: list[str]) -> tuple[int, str, str]:
+        return self.adb.shell_nocheck(cmd)
+
+    def shell(self, cmd: list[str]) -> tuple[str, str]:
+        return self.adb.shell(cmd)
+
+    def clear_logcat(self) -> None:
+        self.adb.clear_logcat()
+
+    def logcat(self) -> str:
+        return self.adb.logcat()
+
+    def push(self, local: str | list[str], remote: str, sync: bool = False) -> str:
+        return self.adb.push(local, remote, sync)
 
     @property
     def name(self) -> str:
