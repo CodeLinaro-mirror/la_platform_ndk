@@ -31,7 +31,7 @@ class AcidSessionManager:
     def __init__(
         self,
         acid_cli: AcidCli | None = None,
-        device_factory: AcidDeviceFactory = AcidDevice,
+        device_factory: AcidDeviceFactory = AcidDevice.create,
     ) -> None:
         if acid_cli is None:
             acid_cli = AcidCli()

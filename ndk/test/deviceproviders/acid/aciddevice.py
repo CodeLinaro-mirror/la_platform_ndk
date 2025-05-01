@@ -13,12 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+from __future__ import annotations
 
 # TODO: This package should be moved into ndk.devenv.
-from ndk.devenv.devices import Device
+from ndk.devenv.devices import Device, DeviceConfig
+from ndk.devenv.devices.adbdeviceinterface import AdbDeviceInterface
 
 
 class AcidDevice(Device):
-    def __init__(self, session_id: str, serial: str, precache: bool = False) -> None:
-        super().__init__(serial, precache)
+    def __init__(
+        self,
+        session_id: str,
+        serial: str,
+        config: DeviceConfig,
+        adb: AdbDeviceInterface | None = None,
+    ) -> None:
+        super().__init__(serial, config, adb)
         self.session_id = session_id
+
+    @staticmethod
+    def create(session_id: str, serial: str) -> AcidDevice:
+        adb = AdbDeviceInterface(serial)
+        return AcidDevice(session_id, serial, DeviceConfig.for_device(adb), adb)

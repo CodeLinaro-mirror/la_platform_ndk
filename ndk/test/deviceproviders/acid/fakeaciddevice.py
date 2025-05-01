@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 from ndk.abis import Abi
+from ndk.devenv.devices import DeviceConfig
 
 from .aciddevice import AcidDevice
 
@@ -26,14 +27,17 @@ class FakeAcidDevice(AcidDevice):
         abis: list[Abi],
         os_version: int,
     ) -> None:
-        super().__init__(session_id, serial, precache=False)
-        self._abis = tuple(abis)
-        self._os_version = os_version
-
-    @property
-    def abis(self) -> tuple[Abi, ...]:
-        return self._abis
-
-    @property
-    def version(self) -> int:
-        return self._os_version
+        super().__init__(
+            session_id,
+            serial,
+            DeviceConfig(
+                abis=tuple(abis),
+                version=os_version,
+                supports_mte=False,
+                build_id="FakeBuildId",
+                product_name="FakeAcidDevice",
+                is_debuggable=False,
+                is_emulator=False,
+                is_release=False,
+            ),
+        )

@@ -23,8 +23,8 @@ def logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def create_device(_worker: Worker, serial: str, precache: bool) -> Device:
-    return Device(serial, precache)
+def create_device(_worker: Worker, serial: str) -> Device:
+    return Device.from_serial(serial)
 
 
 def get_all_attached_devices(workqueue: WorkQueue) -> List[Device]:
@@ -58,7 +58,7 @@ def get_all_attached_devices(workqueue: WorkQueue) -> List[Device]:
 
         # Caching all the device details via getprop can actually take quite a
         # bit of time. Do it in parallel to minimize the cost.
-        workqueue.add_task(create_device, serial, True)
+        workqueue.add_task(create_device, serial)
 
     devices = []
     while not workqueue.finished():

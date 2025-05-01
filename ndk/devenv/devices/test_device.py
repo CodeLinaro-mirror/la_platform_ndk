@@ -15,16 +15,18 @@ from .deviceconfig import DeviceConfig
 
 class MockDevice(Device):
     def __init__(self, version: int, abis: List[Abi], supports_mte: bool) -> None:
-        super().__init__("")
-        self._config = DeviceConfig(
-            abis=tuple(abis),
-            version=version,
-            supports_mte=supports_mte,
-            build_id="MockBuildId",
-            product_name="MockDevice",
-            is_debuggable=False,
-            is_emulator=False,
-            is_release=False,
+        super().__init__(
+            "",
+            DeviceConfig(
+                abis=tuple(abis),
+                version=version,
+                supports_mte=supports_mte,
+                build_id="MockBuildId",
+                product_name="MockDevice",
+                is_debuggable=False,
+                is_emulator=False,
+                is_release=False,
+            ),
         )
 
 

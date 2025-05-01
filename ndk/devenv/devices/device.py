@@ -1,5 +1,6 @@
 # Copyright (C) 2017 The Android Open Source Project
 # SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
 
 from ndk.abis import Abi
 from ndk.test.spec import BuildConfiguration
@@ -11,16 +12,26 @@ from .deviceconfig import DeviceConfig
 class Device:
     """A device to be used for testing."""
 
-    def __init__(self, serial: str, precache: bool = False) -> None:
-        self.adb = AdbDeviceInterface(serial)
+    def __init__(
+        self,
+        serial: str,
+        config: DeviceConfig,
+        adb: AdbDeviceInterface | None = None,
+    ) -> None:
+        if adb is None:
+            adb = AdbDeviceInterface(serial)
+        else:
+            assert adb.serial == serial
+        self.adb = adb
         self.serial = serial
-        self._config: DeviceConfig | None = None
-        if precache:
-            self.config()
+        self._config = config
+
+    @staticmethod
+    def from_serial(serial: str) -> Device:
+        adb = AdbDeviceInterface(serial)
+        return Device(serial, DeviceConfig.for_device(adb), adb)
 
     def config(self) -> DeviceConfig:
-        if self._config is None:
-            self._config = DeviceConfig.for_device(self.adb)
         return self._config
 
     def shell_nocheck(self, cmd: list[str]) -> tuple[int, str, str]:
