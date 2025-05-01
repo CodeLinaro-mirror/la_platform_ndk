@@ -36,7 +36,7 @@ def shell_nocheck_wrap_errors(device: Device, cmd: str) -> AdbResult:
     """Invokes device.shell_nocheck and wraps exceptions as failed commands."""
     repro_cmd = f"adb -s {device.serial} shell {shlex.quote(cmd)}"
     try:
-        rc, stdout, stderr = device.shell_nocheck([cmd])
+        rc, stdout, stderr = device.shell_nocheck_sync([cmd])
         return rc, stdout, stderr, repro_cmd
     except RuntimeError:
         return 1, cmd, traceback.format_exc(), repro_cmd

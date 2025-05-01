@@ -189,12 +189,13 @@ class TestRunner:
         for config in iter_configs_with_no_device(self.test_plan, fleet):
             logger().warning("No device found for %s.", config)
 
+        preparer = DevicePreparer(fleet)
+        if clean_devices:
+            with self.timing_report.timed("Clean device"):
+                await preparer.clean()
+
         workqueue = WorkQueue()
         try:
-            preparer = DevicePreparer(fleet)
-            if clean_devices:
-                with self.timing_report.timed("Clean device"):
-                    preparer.clean(workqueue)
 
             with self.timing_report.timed("Push"):
                 preparer.push(workqueue, self.test_plan)

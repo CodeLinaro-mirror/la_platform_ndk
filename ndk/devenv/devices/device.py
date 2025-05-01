@@ -34,7 +34,10 @@ class Device:
     def config(self) -> DeviceConfig:
         return self._config
 
-    def shell_nocheck(self, cmd: list[str]) -> tuple[int, str, str]:
+    async def shell_nocheck(self, cmd: list[str]) -> tuple[int, str, str]:
+        return await self.adb.shell_nocheck(cmd)
+
+    def shell_nocheck_sync(self, cmd: list[str]) -> tuple[int, str, str]:
         return self.adb.shell_nocheck_sync(cmd)
 
     def shell(self, cmd: list[str]) -> tuple[str, str]:

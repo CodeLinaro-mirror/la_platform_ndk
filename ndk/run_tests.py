@@ -33,18 +33,12 @@ try:
 except ModuleNotFoundError:
     CAN_USE_RICH = False
 
-import ndk.ansi
 import ndk.archive
-import ndk.ext.subprocess
 import ndk.notify
 import ndk.paths
 import ndk.test.builder
-import ndk.test.buildtest.case
-import ndk.test.ui
-import ndk.ui
 from ndk.test.devicetest.case import TestCase
 from ndk.test.devicetest.testplan import TestPlan
-from ndk.test.devicetest.testrunner import TestRunner
 from ndk.test.filters import TestFilter
 from ndk.test.printers import StdoutPrinter
 from ndk.test.result import ResultTranslations
@@ -319,6 +313,14 @@ async def run_tests(args: argparse.Namespace) -> Results:
     if args.build_only:
         results.passed()
         return results
+
+    # Non-top-level import because the run_tests.py script, which should only be used
+    # in a local development environment, is also used to build the Windows tests in CI
+    # with --build-only. That mode exits just above this block, so it's safe to import
+    # now. We can't import it sooner because the test run UI imports rich, which isn't
+    # available in the CI environment.
+    # pylint: disable=import-outside-toplevel
+    from ndk.test.devicetest.testrunner import TestRunner
 
     test_filter = TestFilter.from_string(args.filter)
     runner = TestRunner(

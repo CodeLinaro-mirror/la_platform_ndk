@@ -13,11 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+import asyncio
 import logging
 import subprocess
 from pathlib import PurePosixPath
 
-import ndk.ui
+from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
 
 # TODO: This module should be moved into ndk.devenv.
 from ndk.devenv.devices import Device, DeviceFleet
@@ -32,11 +33,11 @@ def logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def clear_test_directory(_worker: Worker, device: Device) -> None:
-    print(f"Clearing test directory on {device}")
+async def clear_test_directory(task_id: TaskID, device: Device) -> TaskID:
     cmd = ["rm", "-r", str(ndk.paths.DEVICE_TEST_BASE_DIR)]
     logger().info('%s: shell_nocheck "%s"', device.product_name, cmd)
-    device.shell_nocheck(cmd)
+    await device.shell_nocheck(cmd)
+    return task_id
 
 
 def adb_has_feature(feature: str) -> bool:
@@ -70,7 +71,7 @@ def push_tests_to_device(
     """
     worker.status = f"Pushing {test_group.build_config} tests to {device}."
     logger().info("%s: mkdir %s", device.product_name, dest_dir)
-    device.shell_nocheck(["mkdir", str(dest_dir)])
+    device.shell_nocheck_sync(["mkdir", str(dest_dir)])
     logger().info(
         "%s: push%s %s %s",
         device.product_name,
@@ -89,13 +90,26 @@ class DevicePreparer:
     def __init__(self, fleet: DeviceFleet) -> None:
         self.fleet = fleet
 
-    def clean(self, workqueue: WorkQueue) -> None:
-        for group in self.fleet.get_unique_device_groups():
-            for device in group.devices:
-                workqueue.add_task(clear_test_directory, device)
+    async def clean(self) -> None:
+        progress = Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeElapsedColumn(),
+        )
+        with progress:
+            tasks = []
+            for group in self.fleet.get_unique_device_groups():
+                for device in group.devices:
+                    task_id = progress.add_task(
+                        f"Cleaning test directory on {device}", total=None
+                    )
+                    tasks.append(
+                        asyncio.create_task(clear_test_directory(task_id, device))
+                    )
 
-        while not workqueue.finished():
-            workqueue.get_result()
+            for task in asyncio.as_completed(tasks):
+                task_id = await task
+                progress.update(task_id, completed=True, total=1)
 
     def push(self, workqueue: WorkQueue, test_plan: TestPlan) -> None:
         can_use_sync = adb_has_feature("push_sync")
