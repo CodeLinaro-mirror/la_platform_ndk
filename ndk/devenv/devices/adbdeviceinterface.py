@@ -61,25 +61,9 @@ class AdbDeviceInterface:
         if self.product is not None:
             self.adb_cmd.extend(["-p", self.product])
         self._linesep: str | None = None
-        self._features: list[str] | None = None
-
-    @property
-    def features(self) -> list[str]:
-        if self._features is None:
-            try:
-                self._features = self._simple_call(["features"]).splitlines()
-            except subprocess.CalledProcessError:
-                self._features = []
-        return self._features
-
-    def has_shell_protocol(self) -> bool:
-        return "shell_v2" in self.features
 
     def _make_shell_cmd(self, user_cmd: list[str]) -> list[str]:
-        command = self.adb_cmd + ["shell"] + user_cmd
-        if not self.has_shell_protocol():
-            command += self._RETURN_CODE_PROBE
-        return command
+        return self.adb_cmd + ["shell"] + user_cmd + self._RETURN_CODE_PROBE
 
     def _parse_shell_output(self, out: str) -> tuple[int, str]:
         """Finds the exit code string from shell output.
@@ -169,11 +153,8 @@ class AdbDeviceInterface:
         stdout_bytes, stderr_bytes = await p.communicate()
         stdout = stdout_bytes.decode("utf-8")
         stderr = stderr_bytes.decode("utf-8")
-        exit_code = await p.wait()
-        if not self.has_shell_protocol():
-            # Old versions of adb (pre 24?) did not propagate error codes from the
-            # device.
-            exit_code, stdout = self._parse_shell_output(stdout)
+        await p.wait()
+        exit_code, stdout = self._parse_shell_output(stdout)
         return exit_code, stdout, stderr
 
     def shell_nocheck_sync(self, cmd: list[str]) -> tuple[int, str, str]:
@@ -192,10 +173,7 @@ class AdbDeviceInterface:
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
         )
         stdout, stderr = p.communicate()
-        if self.has_shell_protocol():
-            exit_code = p.returncode
-        else:
-            exit_code, stdout = self._parse_shell_output(stdout)
+        exit_code, stdout = self._parse_shell_output(stdout)
         return exit_code, stdout, stderr
 
     def push(
