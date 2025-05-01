@@ -53,5 +53,4 @@ class DeviceShardingGroup(ShardingGroup[Device]):
         return True
 
     def __hash__(self) -> int:
-        # BUG: Devices is mutable, so the hash value changes when the list is modified.
-        return hash((self.config, tuple(self.devices)))
+        return hash(self.config)
