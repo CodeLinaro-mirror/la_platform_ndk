@@ -34,6 +34,7 @@ class DeviceConfig:
 
     @staticmethod
     async def for_device(adb: AdbDeviceInterface) -> DeviceConfig:
+        props = adb.sysprops()
         # 64-bit devices list their ABIs differently than 32-bit devices.
         # Check all the possible places for stashing ABI info and merge
         # them.
@@ -44,7 +45,7 @@ class DeviceConfig:
         ]
         abis: set[Abi] = set()
         for abi_prop in abi_properties:
-            value = adb.get_prop(abi_prop)
+            value = props.get(abi_prop)
             if value is not None:
                 abis.update([Abi(s) for s in value.split(",")])
 
@@ -54,26 +55,13 @@ class DeviceConfig:
             # they work when binary translated for x86.
             abis.difference_update({"arm64-v8a", "armeabi-v7a"})
 
-        sdk_version = adb.get_prop("ro.build.version.sdk")
-        assert sdk_version is not None
-        debuggable = adb.get_prop("ro.debuggable")
-        assert debuggable is not None
-        product_name = adb.get_prop("ro.product.name")
-        assert product_name is not None
-        build_id = adb.get_prop("ro.build.id")
-        assert build_id is not None
-        build_characteristics = adb.get_prop("ro.build.characteristics")
-        assert build_characteristics is not None
-        codename = adb.get_prop("ro.build.version.codename")
-        assert codename is not None
-
         return DeviceConfig(
             abis=tuple(sorted(list(abis))),
-            version=int(sdk_version),
+            version=int(props["ro.build.version.sdk"]),
             supports_mte=adb.shell_nocheck(["grep", " mte", "/proc/cpuinfo"])[0] == 0,
-            build_id=build_id,
-            product_name=product_name,
-            is_debuggable=int(debuggable) != 0,
-            is_emulator=build_characteristics == "emulator",
-            is_release=codename == "REL",
+            build_id=props["ro.build.id"],
+            product_name=props["ro.product.name"],
+            is_debuggable=int(props["ro.debuggable"]) != 0,
+            is_emulator=props["ro.build.characteristics"] == "emulator",
+            is_release=props["ro.build.version.codename"] == "REL",
         )

@@ -200,16 +200,20 @@ class AdbDeviceInterface:
 
         return self._simple_call(cmd)
 
-    def get_prop(self, prop_name: str) -> str | None:
-        output = self.shell(["getprop", prop_name])[0].splitlines()
-        if len(output) != 1:
-            raise RuntimeError(
-                "Too many lines in getprop output:\n" + "\n".join(output)
-            )
-        value = output[0]
-        if not value.strip():
-            return None
-        return value
+    def sysprops(self) -> dict[str, str]:
+        props = {}
+        output = self.shell(["getprop"])[0]
+        for line in output.splitlines():
+            # Values can include newlines, so keys and values are bracketed. For now it
+            # seems like we don't need any of those properties, so just ignore them
+            # rather than build the parser.
+            if ": " not in line:
+                continue
+            decorated_key, decorated_value = line.split(": ")
+            if decorated_value[-1] != "]":
+                continue
+            props[decorated_key[1:-1]] = decorated_value[1:-1]
+        return props
 
     def logcat(self) -> str:
         """Returns the contents of logcat."""
