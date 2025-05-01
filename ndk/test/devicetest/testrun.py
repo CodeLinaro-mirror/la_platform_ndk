@@ -79,4 +79,5 @@ class TestRun:
         return self.make_result(self.test_case.run(device), device)
 
     def __str__(self) -> str:
-        return f"{self.name} [{self.config} running on API {self.device_group.version}]"
+        os_version = self.device_group.config.version
+        return f"{self.name} [{self.config} running on API {os_version}]"

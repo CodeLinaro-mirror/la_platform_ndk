@@ -81,8 +81,8 @@ async def acquire_missing_devices(fleet: DeviceFleet) -> None:
         provider = AcidDeviceProvider()
         missing_configs: set[tuple[Abi, int]] = set()
         for shard in missing_shards:
-            for abi in shard.abis:
-                missing_configs.add((abi, shard.version))
+            for abi in shard.config.abis:
+                missing_configs.add((abi, shard.config.version))
 
         tasks = []
         for missing_config in missing_configs:

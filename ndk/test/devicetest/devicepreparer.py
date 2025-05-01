@@ -35,7 +35,7 @@ def logger() -> logging.Logger:
 def clear_test_directory(_worker: Worker, device: Device) -> None:
     print(f"Clearing test directory on {device}")
     cmd = ["rm", "-r", str(ndk.paths.DEVICE_TEST_BASE_DIR)]
-    logger().info('%s: shell_nocheck "%s"', device.name, cmd)
+    logger().info('%s: shell_nocheck "%s"', device.product_name, cmd)
     device.shell_nocheck(cmd)
 
 
@@ -69,11 +69,11 @@ def push_tests_to_device(
         use_sync: True if `adb push --sync` is supported.
     """
     worker.status = f"Pushing {test_group.build_config} tests to {device}."
-    logger().info("%s: mkdir %s", device.name, dest_dir)
+    logger().info("%s: mkdir %s", device.product_name, dest_dir)
     device.shell_nocheck(["mkdir", str(dest_dir)])
     logger().info(
         "%s: push%s %s %s",
-        device.name,
+        device.product_name,
         " --sync" if use_sync else "",
         test_group.host_path,
         dest_dir,

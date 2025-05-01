@@ -6,6 +6,7 @@ from ndk.abis import Abi
 from ndk.test.spec import BuildConfiguration
 
 from .device import Device
+from .deviceconfig import DeviceConfig
 from .deviceshardinggroup import DeviceShardingGroup
 
 
@@ -62,20 +63,20 @@ class DeviceFleet:
 
             # The emulator images have actually been changed over time, so the
             # devices are more trustworthy.
-            if current_group.is_emulator and not device.is_emulator:
+            if current_group.config.is_emulator and not device.is_emulator:
                 self.devices[device.version][abi] = (
                     DeviceShardingGroup.with_first_device(device)
                 )
 
             # Trust release builds over pre-release builds, but don't block
             # pre-release because sometimes that's all there is.
-            if not current_group.is_release and device.is_release:
+            if not current_group.config.is_release and device.is_release:
                 self.devices[device.version][abi] = (
                     DeviceShardingGroup.with_first_device(device)
                 )
 
             # If we have a device that supports MTE, prefer that.
-            if not current_group.supports_mte and device.supports_mte:
+            if not current_group.config.supports_mte and device.supports_mte:
                 self.devices[device.version][abi] = (
                     DeviceShardingGroup.with_first_device(device)
                 )
@@ -112,12 +113,16 @@ class DeviceFleet:
                     missing.append(
                         DeviceShardingGroup(
                             [],
-                            [abi],
-                            version,
-                            is_emulator=False,
-                            is_release=True,
-                            is_debuggable=False,
-                            supports_mte=False,
+                            DeviceConfig(
+                                abis=(abi,),
+                                version=version,
+                                build_id="",
+                                product_name="",
+                                is_emulator=False,
+                                is_release=True,
+                                is_debuggable=False,
+                                supports_mte=False,
+                            ),
                         )
                     )
         return missing

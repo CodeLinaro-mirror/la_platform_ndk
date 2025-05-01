@@ -79,7 +79,7 @@ class TestLeaseEmulator:
         device = list(cli.connected.values())[0]
         assert device.session_id == "abcd"
         assert device.serial == "1234"
-        assert device.abis == [Abi("x86")]
+        assert device.abis == (Abi("x86"),)
         assert device.version == 29
 
 

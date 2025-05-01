@@ -76,7 +76,7 @@ class TestCase:
         raise NotImplementedError
 
     def run(self, device: Device) -> AdbResult:
-        logger().info('%s: shell_nocheck "%s"', device.name, self.cmd)
+        logger().info('%s: shell_nocheck "%s"', device.product_name, self.cmd)
         return shell_nocheck_wrap_errors(device, self.cmd)
 
     @property

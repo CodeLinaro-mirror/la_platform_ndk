@@ -10,26 +10,22 @@ from ndk.abis import Abi
 from ndk.test.spec import BuildConfiguration, CMakeToolchainFile, WeakSymbolsConfig
 
 from .device import Device
+from .deviceconfig import DeviceConfig
 
 
 class MockDevice(Device):
     def __init__(self, version: int, abis: List[Abi], supports_mte: bool) -> None:
         super().__init__("")
-        self._version = version
-        self._abis = abis
-        self._supports_mte = supports_mte
-
-    @property
-    def abis(self) -> List[Abi]:
-        return self._abis
-
-    @property
-    def version(self) -> int:
-        return self._version
-
-    @property
-    def supports_mte(self) -> bool:
-        return self._supports_mte
+        self._config = DeviceConfig(
+            abis=tuple(abis),
+            version=version,
+            supports_mte=supports_mte,
+            build_id="MockBuildId",
+            product_name="MockDevice",
+            is_debuggable=False,
+            is_emulator=False,
+            is_release=False,
+        )
 
 
 def make_test_build_configuration(abi: Abi, api: int) -> BuildConfiguration:

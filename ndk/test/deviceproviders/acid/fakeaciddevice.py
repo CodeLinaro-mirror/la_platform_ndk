@@ -27,11 +27,11 @@ class FakeAcidDevice(AcidDevice):
         os_version: int,
     ) -> None:
         super().__init__(session_id, serial, precache=False)
-        self._abis = abis
+        self._abis = tuple(abis)
         self._os_version = os_version
 
     @property
-    def abis(self) -> list[Abi]:
+    def abis(self) -> tuple[Abi, ...]:
         return self._abis
 
     @property

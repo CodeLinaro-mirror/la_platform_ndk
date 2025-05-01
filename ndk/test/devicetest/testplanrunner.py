@@ -23,7 +23,7 @@ import ndk.ansi
 import ndk.test.ui
 
 # TODO: This module should be moved into ndk.devenv.
-from ndk.devenv.devices import Device, DeviceConfig, DeviceFleet, DeviceShardingGroup
+from ndk.devenv.devices import Device, DeviceFleet, DeviceShardingGroup
 from ndk.test.printers import Printer
 from ndk.test.report import Report
 from ndk.test.result import Failure, Skipped, TestResult, UnexpectedSuccess
@@ -44,8 +44,7 @@ def report_skipped_tests_for_missing_devices(
 ) -> None:
     """Records tests with no compatible device as skipped in the test report."""
     for group in fleet.get_missing():
-        device_config = DeviceConfig(group.abis, group.version, group.supports_mte)
-        if not device_config.can_run_build_config(test_group.build_config):
+        if not group.config.can_run_build_config(test_group.build_config):
             # These are a configuration that will never be valid, like a minSdkVersion
             # 30 test on an API 21 device. No need to report these.
             continue
