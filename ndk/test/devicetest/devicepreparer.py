@@ -50,13 +50,12 @@ def adb_has_feature(feature: str) -> bool:
     return feature in features
 
 
-async def push_tests_to_device(
-    task_id: TaskID,
+async def push_test_group_to_device(
     test_group: TestGroup,
     dest_dir: PurePosixPath,
     device: Device,
     use_sync: bool,
-) -> TaskID:
+) -> None:
     """Pushes a directory to the given device.
 
     Creates the parent directory on the device if needed.
@@ -70,8 +69,6 @@ async def push_tests_to_device(
         device: The device to push to.
         use_sync: True if `adb push --sync` is supported.
     """
-    logger().info("%s: mkdir %s", device.product_name, dest_dir)
-    await device.shell_nocheck(["mkdir", str(dest_dir)])
     logger().info(
         "%s: push%s %s %s",
         device.product_name,
@@ -84,6 +81,39 @@ async def push_tests_to_device(
     # not have execute permission by default. Since we don't know where the tests came
     # from, chmod all the tests regardless.
     await device.shell(["chmod", "-R", "777", str(dest_dir)])
+
+
+async def push_tests_to_device(
+    task_id: TaskID,
+    test_groups: list[TestGroup],
+    dest_dir: PurePosixPath,
+    device: Device,
+    use_sync: bool,
+) -> TaskID:
+    """Pushes a directory to the given device.
+
+    Creates the parent directory on the device if needed.
+
+    Args:
+        worker: The worker performing the task.
+        test_groups: The groups of tests to push.
+        dest_dir: The destination directory on the device. Note that when
+                  pushing a directory, dest_dir will be the parent directory,
+                  not the destination path.
+        device: The device to push to.
+        use_sync: True if `adb push --sync` is supported.
+    """
+    logger().info("%s: mkdir %s", device.product_name, dest_dir)
+    await device.shell_nocheck(["mkdir", str(dest_dir)])
+
+    tasks = []
+    for group in test_groups:
+        tasks.append(
+            asyncio.create_task(
+                push_test_group_to_device(group, dest_dir, device, use_sync)
+            )
+        )
+    await asyncio.wait(tasks)
     return task_id
 
 
@@ -123,25 +153,27 @@ class DevicePreparer:
             TimeElapsedColumn(),
         )
         with progress:
-            for test_group in test_plan.iter_test_groups():
-                for group in self.fleet.get_unique_device_groups():
+            for group in self.fleet.get_unique_device_groups():
+                test_groups = []
+                for test_group in test_plan.iter_test_groups():
                     if group.can_run_build_config(test_group.build_config):
-                        for device in group.devices:
-                            task_id = progress.add_task(
-                                f"Pushing {test_group.build_config} tests to {device}.",
-                                total=None,
+                        test_groups.append(test_group)
+
+                for device in group.devices:
+                    task_id = progress.add_task(
+                        f"Pushing tests to {device}", total=None
+                    )
+                    tasks.append(
+                        asyncio.create_task(
+                            push_tests_to_device(
+                                task_id,
+                                test_groups,
+                                dest_dir,
+                                device,
+                                can_use_sync,
                             )
-                            tasks.append(
-                                asyncio.create_task(
-                                    push_tests_to_device(
-                                        task_id,
-                                        test_group,
-                                        dest_dir,
-                                        device,
-                                        can_use_sync,
-                                    )
-                                )
-                            )
+                        )
+                    )
 
             for task in asyncio.as_completed(tasks):
                 task_id = await task
