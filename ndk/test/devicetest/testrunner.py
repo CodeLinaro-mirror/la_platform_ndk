@@ -194,14 +194,8 @@ class TestRunner:
             with self.timing_report.timed("Clean device"):
                 await preparer.clean()
 
-        workqueue = WorkQueue()
-        try:
-
-            with self.timing_report.timed("Push"):
-                preparer.push(workqueue, self.test_plan)
-        finally:
-            workqueue.terminate()
-            workqueue.join()
+        with self.timing_report.timed("Push"):
+            await preparer.push(self.test_plan)
 
         test_runner = TestPlanRunner(self.printer)
         with self.timing_report.timed("Run"):

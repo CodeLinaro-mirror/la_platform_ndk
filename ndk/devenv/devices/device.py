@@ -40,8 +40,8 @@ class Device:
     def shell_nocheck_sync(self, cmd: list[str]) -> tuple[int, str, str]:
         return self.adb.shell_nocheck_sync(cmd)
 
-    def shell(self, cmd: list[str]) -> tuple[str, str]:
-        return self.adb.shell_sync(cmd)
+    async def shell(self, cmd: list[str]) -> tuple[str, str]:
+        return await self.adb.shell(cmd)
 
     def clear_logcat(self) -> None:
         self.adb.clear_logcat()
@@ -49,8 +49,10 @@ class Device:
     def logcat(self) -> str:
         return self.adb.logcat()
 
-    def push(self, local: str | list[str], remote: str, sync: bool = False) -> str:
-        return self.adb.push(local, remote, sync)
+    async def push(
+        self, local: str | list[str], remote: str, sync: bool = False
+    ) -> str:
+        return await self.adb.push(local, remote, sync)
 
     @property
     def product_name(self) -> str:

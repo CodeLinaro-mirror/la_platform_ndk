@@ -93,7 +93,16 @@ class AdbDeviceInterface:
         out = out[: -len(partition[1]) - len(partition[2])]
         return result, out
 
-    def _simple_call(self, cmd: list[str]) -> str:
+    async def _simple_call(self, cmd: list[str]) -> str:
+        logging.info(" ".join(self.adb_cmd + cmd))
+        proc = await asyncio.create_subprocess_exec(
+            *self.adb_cmd, *cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        )
+        stdout, _ = await proc.communicate()
+        await proc.wait()
+        return stdout.decode("utf-8")
+
+    def _simple_call_sync(self, cmd: list[str]) -> str:
         logging.info(" ".join(self.adb_cmd + cmd))
         return subprocess.check_output(
             self.adb_cmd + cmd, stderr=subprocess.STDOUT
@@ -113,24 +122,6 @@ class AdbDeviceInterface:
             ShellError: the exit code was non-zero.
         """
         exit_code, stdout, stderr = await self.shell_nocheck(cmd)
-        if exit_code != 0:
-            raise ShellError(cmd, stdout, stderr, exit_code)
-        return stdout, stderr
-
-    def shell_sync(self, cmd: list[str]) -> tuple[str, str]:
-        """Calls `adb shell`
-
-        Args:
-            cmd: command to execute as a list of strings.
-
-        Returns:
-            A (stdout, stderr) tuple. Stderr may be combined into stdout
-            if the device doesn't support separate streams.
-
-        Raises:
-            ShellError: the exit code was non-zero.
-        """
-        exit_code, stdout, stderr = self.shell_nocheck_sync(cmd)
         if exit_code != 0:
             raise ShellError(cmd, stdout, stderr, exit_code)
         return stdout, stderr
@@ -176,7 +167,7 @@ class AdbDeviceInterface:
         exit_code, stdout = self._parse_shell_output(stdout)
         return exit_code, stdout, stderr
 
-    def push(
+    async def push(
         self,
         local: str | list[str],
         remote: str,
@@ -207,7 +198,7 @@ class AdbDeviceInterface:
             cmd.extend(local)
             cmd.append(remote)
 
-        return self._simple_call(cmd)
+        return await self._simple_call(cmd)
 
     async def sysprops(self) -> dict[str, str]:
         props = {}
@@ -226,8 +217,8 @@ class AdbDeviceInterface:
 
     def logcat(self) -> str:
         """Returns the contents of logcat."""
-        return self._simple_call(["logcat", "-d"])
+        return self._simple_call_sync(["logcat", "-d"])
 
     def clear_logcat(self) -> None:
         """Clears the logcat buffer."""
-        self._simple_call(["logcat", "-c"])
+        self._simple_call_sync(["logcat", "-c"])

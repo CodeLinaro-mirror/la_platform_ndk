@@ -20,9 +20,10 @@ from pathlib import PurePosixPath
 
 from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
 
+import ndk.paths
+
 # TODO: This module should be moved into ndk.devenv.
 from ndk.devenv.devices import Device, DeviceFleet
-from ndk.workqueue import Worker, WorkQueue
 
 from .testgroup import TestGroup
 from .testplan import TestPlan
@@ -49,13 +50,13 @@ def adb_has_feature(feature: str) -> bool:
     return feature in features
 
 
-def push_tests_to_device(
-    worker: Worker,
+async def push_tests_to_device(
+    task_id: TaskID,
     test_group: TestGroup,
     dest_dir: PurePosixPath,
     device: Device,
     use_sync: bool,
-) -> None:
+) -> TaskID:
     """Pushes a directory to the given device.
 
     Creates the parent directory on the device if needed.
@@ -69,9 +70,8 @@ def push_tests_to_device(
         device: The device to push to.
         use_sync: True if `adb push --sync` is supported.
     """
-    worker.status = f"Pushing {test_group.build_config} tests to {device}."
     logger().info("%s: mkdir %s", device.product_name, dest_dir)
-    device.shell_nocheck_sync(["mkdir", str(dest_dir)])
+    await device.shell_nocheck(["mkdir", str(dest_dir)])
     logger().info(
         "%s: push%s %s %s",
         device.product_name,
@@ -79,11 +79,12 @@ def push_tests_to_device(
         test_group.host_path,
         dest_dir,
     )
-    device.push(str(test_group.host_path), str(dest_dir), sync=use_sync)
+    await device.push(str(test_group.host_path), str(dest_dir), sync=use_sync)
     # Tests that were built and bundled on Windows but pushed from Linux or macOS will
     # not have execute permission by default. Since we don't know where the tests came
     # from, chmod all the tests regardless.
-    device.shell(["chmod", "-R", "777", str(dest_dir)])
+    await device.shell(["chmod", "-R", "777", str(dest_dir)])
+    return task_id
 
 
 class DevicePreparer:
@@ -111,19 +112,37 @@ class DevicePreparer:
                 task_id = await task
                 progress.update(task_id, completed=True, total=1)
 
-    def push(self, workqueue: WorkQueue, test_plan: TestPlan) -> None:
+    async def push(self, test_plan: TestPlan) -> None:
         can_use_sync = adb_has_feature("push_sync")
         dest_dir = ndk.paths.DEVICE_TEST_BASE_DIR
-        for test_group in test_plan.iter_test_groups():
-            for group in self.fleet.get_unique_device_groups():
-                if group.can_run_build_config(test_group.build_config):
-                    for device in group.devices:
-                        workqueue.add_task(
-                            push_tests_to_device,
-                            test_group,
-                            dest_dir,
-                            device,
-                            can_use_sync,
-                        )
+        tasks = []
 
-        ndk.ui.finish_workqueue_with_ui(workqueue, ndk.ui.get_work_queue_ui)
+        progress = Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeElapsedColumn(),
+        )
+        with progress:
+            for test_group in test_plan.iter_test_groups():
+                for group in self.fleet.get_unique_device_groups():
+                    if group.can_run_build_config(test_group.build_config):
+                        for device in group.devices:
+                            task_id = progress.add_task(
+                                f"Pushing {test_group.build_config} tests to {device}.",
+                                total=None,
+                            )
+                            tasks.append(
+                                asyncio.create_task(
+                                    push_tests_to_device(
+                                        task_id,
+                                        test_group,
+                                        dest_dir,
+                                        device,
+                                        can_use_sync,
+                                    )
+                                )
+                            )
+
+            for task in asyncio.as_completed(tasks):
+                task_id = await task
+                progress.update(task_id, completed=True, total=1)
