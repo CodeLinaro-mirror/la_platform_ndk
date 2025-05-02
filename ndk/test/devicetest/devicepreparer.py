@@ -16,6 +16,7 @@
 import asyncio
 import logging
 import subprocess
+from asyncio import TaskGroup
 from pathlib import PurePosixPath
 
 from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
@@ -106,14 +107,11 @@ async def push_tests_to_device(
     logger().info("%s: mkdir %s", device.product_name, dest_dir)
     await device.shell_nocheck(["mkdir", str(dest_dir)])
 
-    tasks = []
-    for group in test_groups:
-        tasks.append(
-            asyncio.create_task(
+    async with TaskGroup() as tasks:
+        for group in test_groups:
+            tasks.create_task(
                 push_test_group_to_device(group, dest_dir, device, use_sync)
             )
-        )
-    await asyncio.wait(tasks)
     return task_id
 
 
