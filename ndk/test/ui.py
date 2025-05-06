@@ -19,9 +19,12 @@ from __future__ import absolute_import, print_function
 import os
 import sys
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, List
+
+from rich.progress import Progress, TaskID
 
 import ndk.ansi
 from ndk.ansi import Console, font_bold, font_faint, font_reset
@@ -32,6 +35,14 @@ from ndk.workqueue import ShardingWorkQueue, Worker
 from .devicetest.testrun import TestRun
 from .printers import Printer
 from .result import TestResult
+
+USE_RICH = True
+
+
+def rich_text_colorer(text: str, color: str, do_color: bool) -> str:
+    if do_color:
+        return f"[{color}]{text}[/{color}]"
+    return text
 
 
 class TestProgressUi(ABC):
@@ -140,12 +151,51 @@ class WorkQueueTestProgressUi(TestProgressUi):
         self.clear()
 
 
+class RichTestProgressUi(TestProgressUi):
+    def __init__(self, log_all_results: bool) -> None:
+        self.log_all_results = log_all_results
+        self.progress = Progress()
+        self.jobs_per_group: dict[DeviceShardingGroup, int] = defaultdict(int)
+        self.task_ids: dict[DeviceShardingGroup, TaskID] = {}
+
+    @contextmanager
+    def ui_context(self) -> Iterator[None]:
+        for device_group, task_id in self.task_ids.items():
+            self.progress.update(task_id, total=self.jobs_per_group[device_group])
+
+        with self.progress:
+            yield
+
+    def on_test_scheduled(self, test: TestRun) -> None:
+        group = test.device_group
+        self.jobs_per_group[group] += 1
+        if group not in self.task_ids:
+            self.task_ids[group] = self.progress.add_task(
+                f"Running tests on {group}", total=None
+            )
+
+    def on_test_finished(
+        self, device_group: DeviceShardingGroup, result: TestResult
+    ) -> None:
+        if self.log_all_results or result.failed():
+            self.progress.console.print(
+                result.to_string(colored=True, text_colorer=rich_text_colorer)
+            )
+        self.progress.advance(self.task_ids[device_group])
+
+    def on_finished(self) -> None:
+        pass
+
+
 def get_test_progress_ui(
     console: Console,
     workqueue: ShardingWorkQueue[Any, Device],
     printer: Printer,
     log_all_results: bool,
 ) -> TestProgressUi:
+    if USE_RICH and console.smart_console:
+        return RichTestProgressUi(log_all_results)
+
     ui_renderer: UiRenderer
     if console.smart_console:
         ui_renderer = AnsiUiRenderer(console)
