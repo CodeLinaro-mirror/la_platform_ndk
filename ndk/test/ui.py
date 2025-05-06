@@ -17,25 +17,61 @@
 from __future__ import absolute_import, print_function
 
 import os
+import sys
+from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, List
 
+import ndk.ansi
 from ndk.ansi import Console, font_bold, font_faint, font_reset
-from ndk.devenv.devices import Device
-from ndk.ui import AnsiUiRenderer, NonAnsiUiRenderer, Ui, UiRenderer
+from ndk.devenv.devices import Device, DeviceShardingGroup
+from ndk.ui import AnsiUiRenderer, NonAnsiUiRenderer, UiRenderer
 from ndk.workqueue import ShardingWorkQueue, Worker
 
+from .devicetest.testrun import TestRun
+from .printers import Printer
+from .result import TestResult
 
-class TestProgressUi(Ui):
+
+class TestProgressUi(ABC):
+    @contextmanager
+    @abstractmethod
+    def ui_context(self) -> Iterator[None]:
+        """Enters the UI updating context."""
+
+    @abstractmethod
+    def on_test_scheduled(self, test: TestRun) -> None:
+        """Called when a test run is scheduled."""
+
+    @abstractmethod
+    def on_test_finished(
+        self, device_group: DeviceShardingGroup, result: TestResult
+    ) -> None:
+        """Called when a test is completed."""
+
+    @abstractmethod
+    def on_finished(self) -> None:
+        """Called when all tests are completed."""
+
+
+class WorkQueueTestProgressUi(TestProgressUi):
     NUM_TESTS_DIGITS = 6
 
     def __init__(
         self,
         ui_renderer: UiRenderer,
+        printer: Printer,
+        console: Console,
+        log_all_results: bool,
         show_worker_status: bool,
         show_device_groups: bool,
         workqueue: ShardingWorkQueue[Any, Device],
     ) -> None:
-        super().__init__(ui_renderer)
+        self.ui_renderer = ui_renderer
+        self.printer = printer
+        self.console = console
+        self.log_all_results = log_all_results
         self.show_worker_status = show_worker_status
         self.show_device_groups = show_device_groups
         self.workqueue = workqueue
@@ -75,9 +111,40 @@ class TestProgressUi(Ui):
 
         return lines
 
+    def clear(self) -> None:
+        """Clears the UI."""
+        self.ui_renderer.clear_last_render()
+
+    def draw(self) -> None:
+        """Draws the UI."""
+        self.ui_renderer.render(self.get_ui_lines())
+
+    @contextmanager
+    def ui_context(self) -> Iterator[None]:
+        with ndk.ansi.disable_terminal_echo(sys.stdin):
+            with self.console.cursor_hide_context():
+                yield
+
+    def on_test_scheduled(self, test: TestRun) -> None:
+        pass
+
+    def on_test_finished(
+        self, device_group: DeviceShardingGroup, result: TestResult
+    ) -> None:
+        if self.log_all_results or result.failed():
+            self.clear()
+            self.printer.print_result(result)
+        self.draw()
+
+    def on_finished(self) -> None:
+        self.clear()
+
 
 def get_test_progress_ui(
-    console: Console, workqueue: ShardingWorkQueue[Any, Device]
+    console: Console,
+    workqueue: ShardingWorkQueue[Any, Device],
+    printer: Printer,
+    log_all_results: bool,
 ) -> TestProgressUi:
     ui_renderer: UiRenderer
     if console.smart_console:
@@ -92,6 +159,12 @@ def get_test_progress_ui(
         ui_renderer = NonAnsiUiRenderer(console)
         show_worker_status = False
         show_device_groups = True
-    return TestProgressUi(
-        ui_renderer, show_worker_status, show_device_groups, workqueue
+    return WorkQueueTestProgressUi(
+        ui_renderer,
+        printer,
+        console,
+        log_all_results,
+        show_worker_status,
+        show_device_groups,
+        workqueue,
     )
