@@ -15,13 +15,9 @@
 # limitations under the License.
 #
 """Shortcut for ndk/checkbuild.py."""
+import asyncio
+
 import ndk.checkbuild
 
-
-def main() -> None:
-    """Trampoline into the builder defined in the ndk package."""
-    ndk.checkbuild.main()
-
-
 if __name__ == "__main__":
-    main()
+    asyncio.run(ndk.checkbuild.main())

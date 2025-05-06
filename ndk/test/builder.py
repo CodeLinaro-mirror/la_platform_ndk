@@ -202,7 +202,7 @@ class TestBuilder:
         if self.test_options.out_dir.exists():
             shutil.rmtree(self.test_options.out_dir)
 
-    def build(self) -> Report[None]:
+    async def build(self) -> Report[None]:
         if self.test_options.clean:
             self.clean_out_dir()
         self.make_out_dirs()
@@ -212,7 +212,7 @@ class TestBuilder:
         if self.test_options.build_report:
             write_build_report(self.test_options.build_report, result)
         if result.successful and self.test_options.package_path is not None:
-            self.package()
+            await self.package()
         return result
 
     def do_build(self, test_filters: TestFilter) -> Report[None]:
@@ -276,11 +276,11 @@ class TestBuilder:
                     ui.draw()
                 ui.clear()
 
-    def package(self) -> None:
+    async def package(self) -> None:
         assert self.test_options.package_path is not None
         print("Packaging tests...")
 
-        ndk.archive.make_bztar(
+        await ndk.archive.make_bztar(
             self.test_options.package_path,
             self.test_options.out_dir.parent,
             Path("tests/dist"),
