@@ -21,6 +21,8 @@ import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
+from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
+
 from ndk.abis import Abi
 
 # TODO: This moduleshould be moved into ndk.devenv.
@@ -43,20 +45,6 @@ def logger() -> logging.Logger:
 
 async def acquire_missing_devices(fleet: DeviceFleet) -> None:
     """Attempts to acquire missing devices and add them to the fleet."""
-    try:
-        from rich.progress import (  # pylint: disable=import-outside-toplevel
-            BarColumn,
-            Progress,
-            TaskID,
-            TextColumn,
-            TimeElapsedColumn,
-        )
-    except ModuleNotFoundError:
-        print(
-            "Development packages not installed, cannot auto-acquire devices. Run "
-            "`poetry install`"
-        )
-        return
 
     async def acquire_device_with_progress(
         task_id: TaskID, provider: AcidDeviceProvider, abi: Abi, api: int
