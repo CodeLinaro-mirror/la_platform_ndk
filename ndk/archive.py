@@ -14,10 +14,12 @@
 # limitations under the License.
 #
 """Helper functions for reading and writing .zip and .tar.bz2 archives."""
+import asyncio
 import os
 import shutil
 import subprocess
 from pathlib import Path
+from subprocess import CalledProcessError
 from typing import List
 
 
@@ -28,7 +30,7 @@ def _tar_cmd() -> str:
     return "tar"
 
 
-def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
+async def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
     """Create a compressed tarball.
 
     Arguments have the same name and meaning as shutil.make_archive.
@@ -43,17 +45,19 @@ def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
     if not (root_dir / base_dir).is_dir():
         raise RuntimeError(f"Not a directory: {root_dir}/{base_dir}")
 
-    subprocess.check_call(
-        [
-            _tar_cmd(),
-            ("-j" if shutil.which("pbzip2") is None else "--use-compress-prog=pbzip2"),
-            "-cf",
-            str(base_name.with_suffix(".tar.bz2")),
-            "-C",
-            str(root_dir),
-            str(base_dir),
-        ]
-    )
+    cmd = [
+        _tar_cmd(),
+        ("-j" if shutil.which("pbzip2") is None else "--use-compress-prog=pbzip2"),
+        "-cf",
+        str(base_name.with_suffix(".tar.bz2")),
+        "-C",
+        str(root_dir),
+        str(base_dir),
+    ]
+
+    proc = await asyncio.create_subprocess_exec(*cmd)
+    if status := await proc.wait():
+        raise CalledProcessError(status, cmd)
 
 
 # For (un)zipping archives on Unix-like systems, the "zip" and "unzip" commands

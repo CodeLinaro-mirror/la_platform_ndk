@@ -20,6 +20,7 @@ Cleans old build artifacts, configures the required environment, determines
 build goals, and invokes the build scripts.
 """
 import argparse
+import asyncio
 import collections
 import contextlib
 import copy
@@ -281,7 +282,9 @@ def package_ndk(
     return package_path.with_suffix(".zip")
 
 
-def build_ndk_tests(out_dir: Path, dist_dir: Path, args: argparse.Namespace) -> bool:
+async def build_ndk_tests(
+    out_dir: Path, dist_dir: Path, args: argparse.Namespace
+) -> bool:
     """Builds the NDK tests.
 
     Args:
@@ -314,7 +317,7 @@ def build_ndk_tests(out_dir: Path, dist_dir: Path, args: argparse.Namespace) -> 
     test_spec = ndk.test.spec.TestSpec.load(ndk.paths.ndk_path("qa_config.json"))
     builder = ndk.test.builder.TestBuilder(test_spec, test_options, printer)
 
-    report = builder.build()
+    report = await builder.build()
     printer.print_summary(report)
 
     if not report.successful:
@@ -2468,7 +2471,7 @@ def get_directory_size(path: Path) -> int:
     return int(size_str)
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+async def main(argv: Sequence[str] | None = None) -> None:
     total_timer = ndk.timer.Timer()
     total_timer.start()
 
@@ -2566,7 +2569,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.build_tests:
             print("Building tests...")
             purge_unwanted_files(ndk_dir)
-            good = build_ndk_tests(out_dir, dist_dir, args)
+            good = await build_ndk_tests(out_dir, dist_dir, args)
             print()  # Blank line between test results and timing data.
 
     total_timer.finish()
@@ -2610,9 +2613,10 @@ def _assign_self_to_new_process_group(fd: TextIO) -> Iterator[None]:
         yield
 
 
+# TODO: Is this used?
 def _run_main_in_new_process_group() -> None:
     with _assign_self_to_new_process_group(sys.stdin):
-        main()
+        asyncio.run(main())
 
 
 if __name__ == "__main__":

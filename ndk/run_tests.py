@@ -217,7 +217,7 @@ class Results:
             yield
 
 
-def rebuild_tests(
+async def rebuild_tests(
     args: argparse.Namespace, results: Results, test_spec: TestSpec
 ) -> bool:
     build_printer = StdoutPrinter(
@@ -234,7 +234,7 @@ def rebuild_tests(
             package_path=args.dist_dir / "ndk-tests" if args.package else None,
         )
         builder = ndk.test.builder.TestBuilder(test_spec, test_options, build_printer)
-        report = builder.build()
+        report = await builder.build()
 
     if report.num_tests == 0:
         results.failed("Found no tests for filter {}.".format(args.filter))
@@ -267,7 +267,7 @@ async def run_tests(args: argparse.Namespace) -> Results:
 
     test_dist_dir = args.test_dir / "dist"
     if args.rebuild:
-        if not rebuild_tests(args, results, test_spec):
+        if not await rebuild_tests(args, results, test_spec):
             return results
 
     test_filter = TestFilter.from_string(args.filter)
