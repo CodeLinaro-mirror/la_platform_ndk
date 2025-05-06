@@ -30,7 +30,6 @@ from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.spec import BuildConfiguration, TestSpec
 from ndk.timer import TimingReport
-from ndk.workqueue import WorkQueue
 
 from .devicepreparer import DevicePreparer
 from .testplan import TestPlan
