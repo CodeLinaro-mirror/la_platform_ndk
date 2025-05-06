@@ -25,7 +25,7 @@ class TestBuildAction(Action):
         # and replaced with asyncio anyway, so we can improve this then.
         cmd = [
             sys.executable,
-            "run_tests.py",
+            "ndk/run_tests.py",
             "--build-only",
             "--package",
             f"--dist-dir={self.dist_dir}",

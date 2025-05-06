@@ -27,7 +27,7 @@ class BuildAction(Action):
         # and replaced with asyncio anyway, so we can improve this then.
         cmd = [
             sys.executable,
-            "checkbuild.py",
+            "ndk/checkbuild.py",
             "--package",
             f"--build-number={self.build_id}",
         ]
