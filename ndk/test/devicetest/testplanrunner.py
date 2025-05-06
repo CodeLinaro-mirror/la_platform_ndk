@@ -16,7 +16,6 @@
 """Runs a test plan on a test fleet."""
 import logging
 import random
-import sys
 import time
 
 import ndk.ansi
@@ -72,32 +71,24 @@ def pair_test_runs(
 
 
 def wait_for_results(
+    ui: ndk.test.ui.TestProgressUi,
     report: Report[DeviceShardingGroup],
-    workqueue: ShardingWorkQueue[TestResult, Device],
-    printer: Printer,
+    workqueue: ShardingWorkQueue[tuple[DeviceShardingGroup, TestResult], Device],
 ) -> None:
-    console = ndk.ansi.get_console()
-    ui = ndk.test.ui.get_test_progress_ui(console, workqueue)
-    with ndk.ansi.disable_terminal_echo(sys.stdin):
-        with console.cursor_hide_context():
-            while not workqueue.finished():
-                results = workqueue.get_results()
-                verbose = logger().isEnabledFor(logging.INFO)
-                if verbose or any(r.failed() for r in results):
-                    ui.clear()
-                for result in results:
-                    suite = result.test.build_system
-                    report.add_result(suite, result)
-                    if verbose or result.failed():
-                        printer.print_result(result)
-                ui.draw()
-            ui.clear()
+    with ui.ui_context():
+        while not workqueue.finished():
+            results = workqueue.get_results()
+            for sharding_group, result in results:
+                suite = result.test.build_system
+                report.add_result(suite, result)
+                ui.on_test_finished(sharding_group, result)
+        ui.on_finished()
 
 
-def run_test(worker: Worker, test: TestRun) -> TestResult:
+def run_test(worker: Worker, test: TestRun) -> tuple[DeviceShardingGroup, TestResult]:
     device = worker.data[0]
     worker.status = f"Running {test.name}"
-    return test.run(device)
+    return test.device_group, test.run(device)
 
 
 def flake_filter(result: TestResult) -> bool:
@@ -115,8 +106,9 @@ def flake_filter(result: TestResult) -> bool:
 
 
 def restart_flaky_tests(
+    ui: ndk.test.ui.TestProgressUi,
     report: Report[DeviceShardingGroup],
-    workqueue: ShardingWorkQueue[TestResult, Device],
+    workqueue: ShardingWorkQueue[tuple[DeviceShardingGroup, TestResult], Device],
 ) -> None:
     """Finds and restarts any failing flaky tests."""
     rerun_tests = report.remove_all_failing_flaky(flake_filter)
@@ -134,23 +126,26 @@ def restart_flaky_tests(
         logger().warning("Flaky test failure: %s", flaky_report.result)
         group = flaky_report.result.test.device_group
         workqueue.add_task(group, run_test, flaky_report.result.test)
+        ui.on_test_scheduled(flaky_report.result.test)
 
 
-def run_and_collect_logs(worker: Worker, test_run: TestRun) -> TestResult:
+def run_and_collect_logs(
+    worker: Worker, test_run: TestRun
+) -> tuple[DeviceShardingGroup, TestResult]:
     device: Device = worker.data[0]
     worker.status = "Clearing device log"
     device.clear_logcat()
-    result = run_test(worker, test_run)
+    _group, result = run_test(worker, test_run)
     if not isinstance(result, Failure):
         logger().warning(
             "Failing test passed on re-run while collecting logs. This makes testing "
             "slower. Test flake should be investigated."
         )
-        return result
+        return test_run.device_group, result
     worker.status = "Collecting device log"
     log = device.logcat()
     result.message += f"\nlogcat contents:\n{log}"
-    return result
+    return test_run.device_group, result
 
 
 def get_and_attach_logs_for_failing_tests(
@@ -162,13 +157,20 @@ def get_and_attach_logs_for_failing_tests(
 
     # Have to use max of one worker per re-run to ensure that the logs we collect do not
     # conflate with other tests.
-    queue: ShardingWorkQueue[TestResult, Device] = ShardingWorkQueue(
-        fleet.get_unique_device_groups(), 1
+    queue: ShardingWorkQueue[tuple[DeviceShardingGroup, TestResult], Device] = (
+        ShardingWorkQueue(fleet.get_unique_device_groups(), 1)
     )
+
+    console = ndk.ansi.get_console()
+    ui = ndk.test.ui.get_test_progress_ui(
+        console, queue, printer, log_all_results=logger().isEnabledFor(logging.INFO)
+    )
+
     try:
         for failure in failures:
             queue.add_task(failure.user_data, run_and_collect_logs, failure.test)
-        wait_for_results(report, queue, printer)
+            ui.on_test_scheduled(failure.test)
+        wait_for_results(ui, report, queue)
     finally:
         queue.terminate()
         queue.join()
@@ -182,9 +184,9 @@ class TestPlanRunner:
         self, test_plan: TestPlan, fleet: DeviceFleet
     ) -> Report[DeviceShardingGroup]:
         report = Report[DeviceShardingGroup]()
-        shard_queue: ShardingWorkQueue[TestResult, Device] = ShardingWorkQueue(
-            fleet.get_unique_device_groups(), 4
-        )
+        shard_queue: ShardingWorkQueue[
+            tuple[DeviceShardingGroup, TestResult], Device
+        ] = ShardingWorkQueue(fleet.get_unique_device_groups(), 4)
         try:
             # Need an input queue per device group, a single result queue, and a
             # pool of threads per device.
@@ -194,12 +196,28 @@ class TestPlanRunner:
             # at any given point in time are all running on the same device.
             test_runs = pair_test_runs(test_plan, report, fleet)
             random.shuffle(test_runs)
+
+            console = ndk.ansi.get_console()
+            ui = ndk.test.ui.get_test_progress_ui(
+                console,
+                shard_queue,
+                self.printer,
+                log_all_results=logger().isEnabledFor(logging.INFO),
+            )
             for test_run in test_runs:
                 shard_queue.add_task(test_run.device_group, run_test, test_run)
+                ui.on_test_scheduled(test_run)
 
-            wait_for_results(report, shard_queue, self.printer)
-            restart_flaky_tests(report, shard_queue)
-            wait_for_results(report, shard_queue, self.printer)
+            wait_for_results(ui, report, shard_queue)
+
+            ui = ndk.test.ui.get_test_progress_ui(
+                console,
+                shard_queue,
+                self.printer,
+                log_all_results=logger().isEnabledFor(logging.INFO),
+            )
+            restart_flaky_tests(ui, report, shard_queue)
+            wait_for_results(ui, report, shard_queue)
         finally:
             shard_queue.terminate()
             shard_queue.join()
