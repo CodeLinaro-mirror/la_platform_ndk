@@ -9,6 +9,7 @@ license = "Apache-2.0"
 test-release = "ndk.tools.testrelease:App.main"
 update-prebuilt-ndk = "ndk.tools.ndkgitprebuilts:App.main"
 update-sysroot = "ndk.tools.updatesysroot:App.main"
+build-tests = "ndk.buildtests:App.main"
 
 [tool.poetry.dependencies]
 python = "^3.11"
