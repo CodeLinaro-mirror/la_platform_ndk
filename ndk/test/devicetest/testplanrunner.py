@@ -163,7 +163,7 @@ def get_and_attach_logs_for_failing_tests(
 
     console = ndk.ansi.get_console()
     ui = ndk.test.ui.get_test_progress_ui(
-        console, queue, printer, log_all_results=logger().isEnabledFor(logging.INFO)
+        console, printer, log_all_results=logger().isEnabledFor(logging.INFO)
     )
 
     try:
@@ -200,7 +200,6 @@ class TestPlanRunner:
             console = ndk.ansi.get_console()
             ui = ndk.test.ui.get_test_progress_ui(
                 console,
-                shard_queue,
                 self.printer,
                 log_all_results=logger().isEnabledFor(logging.INFO),
             )
@@ -212,7 +211,6 @@ class TestPlanRunner:
 
             ui = ndk.test.ui.get_test_progress_ui(
                 console,
-                shard_queue,
                 self.printer,
                 log_all_results=logger().isEnabledFor(logging.INFO),
             )
