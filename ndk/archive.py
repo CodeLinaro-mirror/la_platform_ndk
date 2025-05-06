@@ -21,6 +21,13 @@ from pathlib import Path
 from typing import List
 
 
+def _tar_cmd() -> str:
+    if os.name == "nt":
+        # Explicit path, to avoid conflict with Cygwin.
+        return "c:/windows/system32/tar.exe"
+    return "tar"
+
+
 def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
     """Create a compressed tarball.
 
@@ -36,29 +43,17 @@ def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
     if not (root_dir / base_dir).is_dir():
         raise RuntimeError(f"Not a directory: {root_dir}/{base_dir}")
 
-    if os.name == "nt":
-        shutil.make_archive(
-            str(base_name),
-            "bztar",
+    subprocess.check_call(
+        [
+            _tar_cmd(),
+            ("-j" if shutil.which("pbzip2") is None else "--use-compress-prog=pbzip2"),
+            "-cf",
+            str(base_name.with_suffix(".tar.bz2")),
+            "-C",
             str(root_dir),
             str(base_dir),
-        )
-    else:
-        subprocess.check_call(
-            [
-                "tar",
-                (
-                    "-j"
-                    if shutil.which("pbzip2") is None
-                    else "--use-compress-prog=pbzip2"
-                ),
-                "-cf",
-                str(base_name.with_suffix(".tar.bz2")),
-                "-C",
-                str(root_dir),
-                str(base_dir),
-            ]
-        )
+        ]
+    )
 
 
 # For (un)zipping archives on Unix-like systems, the "zip" and "unzip" commands
@@ -116,7 +111,7 @@ def make_zip(
     # See comment above regarding .zip files on Windows.
     if os.name == "nt":
         # Explicit path, to avoid conflict with Cygwin.
-        args = ["c:/windows/system32/tar.exe", "-a"]
+        args = [_tar_cmd(), "-a"]
         if not preserve_symlinks:
             args.append("-L")
         args.extend(["-cf", str(zip_file)])
@@ -144,8 +139,7 @@ def unzip(zip_file: Path, dest_dir: Path) -> None:
     if os.name == "nt":
         subprocess.check_call(
             [
-                # Explicit path, to avoid conflict with Cygwin.
-                "c:/windows/system32/tar.exe",
+                _tar_cmd(),
                 "xf",
                 str(zip_file),
                 "-C",
