@@ -19,26 +19,20 @@ from __future__ import absolute_import, print_function
 
 import argparse
 import logging
-import shutil
 import sys
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional
 
-try:
-    from rich.logging import RichHandler
+from rich.logging import RichHandler
 
-    CAN_USE_RICH = True
-except ModuleNotFoundError:
-    CAN_USE_RICH = False
-
-import ndk.archive
 import ndk.notify
 import ndk.paths
 import ndk.test.builder
 from ndk.test.devicetest.case import TestCase
 from ndk.test.devicetest.testplan import TestPlan
+from ndk.test.devicetest.testrunner import TestRunner
 from ndk.test.filters import TestFilter
 from ndk.test.printers import StdoutPrinter
 from ndk.test.result import ResultTranslations
@@ -126,9 +120,6 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     build_exclusive_group = build_options.add_mutually_exclusive_group()
     build_exclusive_group.add_argument(
         "--rebuild", action="store_true", help="Build the tests before running."
-    )
-    build_exclusive_group.add_argument(
-        "--build-only", action="store_true", help="Builds the tests and exits."
     )
     build_options.add_argument(
         "--clean", action="store_true", help="Remove the out directory before building."
@@ -225,35 +216,6 @@ class Results:
             yield
 
 
-def unzip_ndk(ndk_path: Path) -> Path:
-    # Unzip the NDK into out/ndk-zip.
-    if ndk_path.suffix != ".zip":
-        raise ValueError(f"--ndk must be a directory or a .zip file: {ndk}")
-
-    ndk_dir = ndk.paths.path_in_out(Path(ndk_path.stem))
-    if ndk_dir.exists():
-        shutil.rmtree(ndk_dir)
-    ndk_dir.mkdir(parents=True)
-    try:
-        ndk.archive.unzip(ndk_path, ndk_dir)
-        contents = list(ndk_dir.iterdir())
-        assert len(contents) == 1
-        assert contents[0].is_dir()
-        # Windows paths, by default, are limited to 260 characters.
-        # Some of our deeply nested paths run up against this limitation.
-        # Therefore, after unzipping the NDK into something like
-        # out/android-ndk-8136140-windows-x86_64/android-ndk-r25-canary
-        # (61 characters) we rename it to out/ndk-zip (7 characters),
-        # shortening paths in the NDK by 54 characters.
-        short_path = ndk.paths.path_in_out(Path("ndk-zip"))
-        if short_path.exists():
-            shutil.rmtree(short_path)
-        contents[0].rename(short_path)
-        return short_path
-    finally:
-        shutil.rmtree(ndk_dir)
-
-
 def rebuild_tests(
     args: argparse.Namespace, results: Results, test_spec: TestSpec
 ) -> bool:
@@ -289,38 +251,23 @@ async def run_tests(args: argparse.Namespace) -> Results:
     results = Results()
 
     if not args.test_dir.exists():
-        if args.rebuild or args.build_only:
+        if args.rebuild:
             args.test_dir.mkdir(parents=True)
         else:
             sys.exit("Test output directory does not exist: {}".format(args.test_dir))
 
     if args.package and not args.dist_dir.exists():
-        if args.rebuild or args.build_only:
+        if args.rebuild:
             args.dist_dir.mkdir(parents=True)
 
     test_spec = TestSpec.load(args.config, abis=args.abi)
 
     printer = StdoutPrinter(show_all=args.show_all)
 
-    if args.ndk.is_file():
-        args.ndk = unzip_ndk(args.ndk)
-
     test_dist_dir = args.test_dir / "dist"
-    if args.build_only or args.rebuild:
+    if args.rebuild:
         if not rebuild_tests(args, results, test_spec):
             return results
-
-    if args.build_only:
-        results.passed()
-        return results
-
-    # Non-top-level import because the run_tests.py script, which should only be used
-    # in a local development environment, is also used to build the Windows tests in CI
-    # with --build-only. That mode exits just above this block, so it's safe to import
-    # now. We can't import it sooner because the test run UI imports rich, which isn't
-    # available in the CI environment.
-    # pylint: disable=import-outside-toplevel
-    from ndk.test.devicetest.testrunner import TestRunner
 
     test_filter = TestFilter.from_string(args.filter)
     runner = TestRunner(
@@ -359,10 +306,7 @@ async def main(argv: Sequence[str] | None = None) -> None:
     log_levels = [logging.WARNING, logging.INFO, logging.DEBUG]
     verbosity = min(args.verbose, len(log_levels) - 1)
     log_level = log_levels[verbosity]
-    handlers = None
-    if CAN_USE_RICH:
-        handlers = [RichHandler(level=log_level)]
-    logging.basicConfig(level=log_level, handlers=handlers)
+    logging.basicConfig(level=log_level, handlers=[RichHandler(level=log_level)])
 
     total_timer = Timer()
     with total_timer:
