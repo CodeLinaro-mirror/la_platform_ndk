@@ -76,7 +76,7 @@ class Test(ABC):
 
     def run(
         self, obj_dir: Path, dist_dir: Path, test_filters: TestFilter
-    ) -> Tuple[TestResult, List["Test"]]:
+    ) -> TestResult:
         raise NotImplementedError
 
     def is_negative_test(self) -> bool:
@@ -147,7 +147,7 @@ class BuildTest(Test):
 
     def run(
         self, obj_dir: Path, dist_dir: Path, _test_filters: TestFilter
-    ) -> Tuple[TestResult, List[Test]]:
+    ) -> TestResult:
         raise NotImplementedError
 
     def check_broken(self) -> tuple[None, None] | tuple[str, str]:
@@ -209,7 +209,7 @@ class PythonBuildTest(BuildTest):
 
     def run(
         self, obj_dir: Path, _dist_dir: Path, _test_filters: TestFilter
-    ) -> Tuple[TestResult, List[Test]]:
+    ) -> TestResult:
         build_dir = self.get_build_dir(obj_dir)
         logger().info("Building test: %s", self.name)
         _prep_build_dir(self.test_dir, build_dir)
@@ -224,8 +224,8 @@ class PythonBuildTest(BuildTest):
             spec.loader.exec_module(module)
             success, failure_message = module.run_test(self.ndk_path, self.config)
             if success:
-                return Success(self), []
-            return Failure(self, failure_message), []
+                return Success(self)
+            return Failure(self, failure_message)
 
 
 class ShellBuildTest(BuildTest):
@@ -237,12 +237,12 @@ class ShellBuildTest(BuildTest):
 
     def run(
         self, obj_dir: Path, _dist_dir: Path, _test_filters: TestFilter
-    ) -> Tuple[TestResult, List[Test]]:
+    ) -> TestResult:
         build_dir = self.get_build_dir(obj_dir)
         logger().info("Building test: %s", self.name)
         if os.name == "nt":
             reason = "build.sh tests are not supported on Windows"
-            return Skipped(self, reason), []
+            return Skipped(self, reason)
         assert self.api is not None
         result = _run_build_sh_test(
             self,
@@ -253,7 +253,7 @@ class ShellBuildTest(BuildTest):
             self.abi,
             self.api,
         )
-        return result, []
+        return result
 
 
 def _run_build_sh_test(
@@ -376,7 +376,7 @@ class NdkBuildTest(BuildTest):
 
     def run(
         self, obj_dir: Path, dist_dir: Path, _test_filters: TestFilter
-    ) -> Tuple[TestResult, List[Test]]:
+    ) -> TestResult:
         logger().info("Building test: %s", self.name)
         obj_dir = self.get_build_dir(obj_dir)
         dist_dir = self.get_dist_dir(obj_dir, dist_dir)
@@ -390,8 +390,8 @@ class NdkBuildTest(BuildTest):
             self.abi,
         )
         if (failure := self.verify_no_cruft_in_dist(dist_dir, proc.args)) is not None:
-            return failure, []
-        return self.make_build_result(proc), []
+            return failure
+        return self.make_build_result(proc)
 
 
 def _run_ndk_build_test(
@@ -440,7 +440,7 @@ class CMakeBuildTest(BuildTest):
 
     def run(
         self, obj_dir: Path, dist_dir: Path, _test_filters: TestFilter
-    ) -> Tuple[TestResult, List[Test]]:
+    ) -> TestResult:
         obj_dir = self.get_build_dir(obj_dir)
         dist_dir = self.get_dist_dir(obj_dir, dist_dir)
         logger().info("Building test: %s", self.name)
@@ -455,8 +455,8 @@ class CMakeBuildTest(BuildTest):
             self.config.toolchain_file == CMakeToolchainFile.Legacy,
         )
         if (failure := self.verify_no_cruft_in_dist(dist_dir, proc.args)) is not None:
-            return failure, []
-        return self.make_build_result(proc), []
+            return failure
+        return self.make_build_result(proc)
 
 
 def _run_cmake_build_test(
