@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from ndk.test.spec import BuildConfiguration
-from ndk.workqueue import ShardingGroup
 
 from .device import Device
 from .deviceconfig import DeviceConfig
 
 
-class DeviceShardingGroup(ShardingGroup[Device]):
+class DeviceShardingGroup:
     """A collection of devices that should be identical for testing purposes.
 
     For the moment, devices are only identical for testing purposes if they are

@@ -25,7 +25,6 @@ import signal
 import sys
 import traceback
 from abc import ABC, abstractmethod
-from collections.abc import Hashable
 from queue import Queue
 from types import FrameType
 from typing import (
@@ -33,9 +32,7 @@ from typing import (
     Callable,
     Concatenate,
     Deque,
-    Dict,
     Generic,
-    Iterable,
     List,
     Optional,
     ParamSpec,
@@ -475,73 +472,6 @@ class BasicWorkQueue(BaseWorkQueue[ResultT]):
     def workers(self) -> List[Worker]:
         """List of workers."""
         return []
-
-    def finished(self) -> bool:
-        """Returns True if all tasks have completed execution."""
-        return self.num_tasks == 0
-
-
-ShardT = TypeVar("ShardT")
-
-
-class ShardingGroup(Hashable, Generic[ShardT]):
-    @property
-    def shards(self) -> list[ShardT]:
-        raise NotImplementedError
-
-
-class ShardingWorkQueue(BaseWorkQueue[ResultT], Generic[ResultT, ShardT]):
-    def __init__(
-        self, device_groups: Iterable[ShardingGroup[ShardT]], procs_per_device: int
-    ) -> None:
-        self.manager = multiprocessing.Manager()
-        self.result_queue = self.manager.Queue()
-        self.task_queues: Dict[ShardingGroup[ShardT], Queue[Task]] = {}
-
-        self.work_queues: Dict[ShardingGroup[ShardT], Dict[Any, WorkQueue]] = {}
-        self.num_tasks = 0
-        for group in device_groups:
-            self.work_queues[group] = {}
-            self.task_queues[group] = self.manager.Queue()
-            for shard in group.shards:
-                self.work_queues[group][shard] = WorkQueue(
-                    procs_per_device,
-                    task_queue=self.task_queues[group],
-                    result_queue=self.result_queue,
-                    worker_data=[shard],
-                )
-
-    def add_task(
-        self,
-        group: ShardingGroup[ShardT],
-        func: Callable[Concatenate[Worker, ParamT], ResultT],
-        *args: ParamT.args,
-        **kwargs: ParamT.kwargs,
-    ) -> None:
-        self.task_queues[group].put(Task(func, *args, **kwargs))
-        self.num_tasks += 1
-
-    def get_result(self) -> Any:
-        """Gets a result from the queue, blocking until one is available."""
-        result = self.result_queue.get()
-        if isinstance(result, TaskError):
-            raise result
-        self.num_tasks -= 1
-        return result
-
-    def terminate(self) -> None:
-        for group_queues in self.work_queues.values():
-            for work_queue in group_queues.values():
-                work_queue.terminate()
-
-    def join(self) -> None:
-        for group_queues in self.work_queues.values():
-            for work_queue in group_queues.values():
-                work_queue.join()
-
-    @property
-    def has_pending_results(self) -> bool:
-        return not self.result_queue.empty()
 
     def finished(self) -> bool:
         """Returns True if all tasks have completed execution."""

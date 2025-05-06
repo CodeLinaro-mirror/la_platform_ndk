@@ -102,12 +102,6 @@ class AdbDeviceInterface:
         await proc.wait()
         return stdout.decode("utf-8")
 
-    def _simple_call_sync(self, cmd: list[str]) -> str:
-        logging.info(" ".join(self.adb_cmd + cmd))
-        return subprocess.check_output(
-            self.adb_cmd + cmd, stderr=subprocess.STDOUT
-        ).decode("utf-8")
-
     async def shell(self, cmd: list[str]) -> tuple[str, str]:
         """Calls `adb shell`
 
@@ -145,25 +139,6 @@ class AdbDeviceInterface:
         stdout = stdout_bytes.decode("utf-8")
         stderr = stderr_bytes.decode("utf-8")
         await p.wait()
-        exit_code, stdout = self._parse_shell_output(stdout)
-        return exit_code, stdout, stderr
-
-    def shell_nocheck_sync(self, cmd: list[str]) -> tuple[int, str, str]:
-        """Calls `adb shell`
-
-        Args:
-            cmd: command to execute as a list of strings.
-
-        Returns:
-            An (exit_code, stdout, stderr) tuple. Stderr may be combined
-            into stdout if the device doesn't support separate streams.
-        """
-        cmd = self._make_shell_cmd(cmd)
-        logging.info(" ".join(cmd))
-        p = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
-        )
-        stdout, stderr = p.communicate()
         exit_code, stdout = self._parse_shell_output(stdout)
         return exit_code, stdout, stderr
 
@@ -215,10 +190,10 @@ class AdbDeviceInterface:
             props[decorated_key[1:-1]] = decorated_value[1:-1]
         return props
 
-    def logcat(self) -> str:
+    async def logcat(self) -> str:
         """Returns the contents of logcat."""
-        return self._simple_call_sync(["logcat", "-d"])
+        return await self._simple_call(["logcat", "-d"])
 
-    def clear_logcat(self) -> None:
+    async def clear_logcat(self) -> None:
         """Clears the logcat buffer."""
-        self._simple_call_sync(["logcat", "-c"])
+        await self._simple_call(["logcat", "-c"])

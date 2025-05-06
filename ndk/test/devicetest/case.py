@@ -32,11 +32,11 @@ def logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def shell_nocheck_wrap_errors(device: Device, cmd: str) -> AdbResult:
+async def shell_nocheck_wrap_errors(device: Device, cmd: str) -> AdbResult:
     """Invokes device.shell_nocheck and wraps exceptions as failed commands."""
     repro_cmd = f"adb -s {device.serial} shell {shlex.quote(cmd)}"
     try:
-        rc, stdout, stderr = device.shell_nocheck_sync([cmd])
+        rc, stdout, stderr = await device.shell_nocheck([cmd])
         return rc, stdout, stderr, repro_cmd
     except RuntimeError:
         return 1, cmd, traceback.format_exc(), repro_cmd
@@ -75,9 +75,9 @@ class TestCase:
     ) -> Union[Tuple[None, None], Tuple[str, str]]:
         raise NotImplementedError
 
-    def run(self, device: Device) -> AdbResult:
+    async def run(self, device: Device) -> AdbResult:
         logger().info('%s: shell_nocheck "%s"', device.product_name, self.cmd)
-        return shell_nocheck_wrap_errors(device, self.cmd)
+        return await shell_nocheck_wrap_errors(device, self.cmd)
 
     @property
     def cmd(self) -> str:

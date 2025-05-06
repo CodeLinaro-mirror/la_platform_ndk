@@ -20,6 +20,7 @@ from __future__ import absolute_import, print_function
 import argparse
 import logging
 import sys
+from asyncio import CancelledError
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -289,12 +290,15 @@ async def run_tests(args: argparse.Namespace) -> Results:
     if args.show_test_stats:
         print_test_stats(runner.test_plan)
 
-    if (
-        error := await runner.run(args.clean_device, args.require_all_devices)
-    ) is not None:
-        results.failed(error)
-    else:
-        results.passed()
+    try:
+        if (
+            error := await runner.run(args.clean_device, args.require_all_devices)
+        ) is not None:
+            results.failed(error)
+        else:
+            results.passed()
+    except CancelledError:
+        results.failed("Test run canceled")
     return results
 
 

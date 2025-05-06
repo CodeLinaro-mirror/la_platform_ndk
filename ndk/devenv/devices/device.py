@@ -37,17 +37,14 @@ class Device:
     async def shell_nocheck(self, cmd: list[str]) -> tuple[int, str, str]:
         return await self.adb.shell_nocheck(cmd)
 
-    def shell_nocheck_sync(self, cmd: list[str]) -> tuple[int, str, str]:
-        return self.adb.shell_nocheck_sync(cmd)
-
     async def shell(self, cmd: list[str]) -> tuple[str, str]:
         return await self.adb.shell(cmd)
 
-    def clear_logcat(self) -> None:
-        self.adb.clear_logcat()
+    async def clear_logcat(self) -> None:
+        await self.adb.clear_logcat()
 
-    def logcat(self) -> str:
-        return self.adb.logcat()
+    async def logcat(self) -> str:
+        return await self.adb.logcat()
 
     async def push(
         self, local: str | list[str], remote: str, sync: bool = False
