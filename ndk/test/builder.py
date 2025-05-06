@@ -79,7 +79,7 @@ def _fixup_negative_test(
     return result
 
 
-RunTestResult = tuple[str, ndk.test.result.TestResult, list[Test]]
+RunTestResult = tuple[str, ndk.test.result.TestResult]
 
 
 def _run_test(
@@ -108,10 +108,10 @@ def _run_test(
     config = test.check_unsupported()
     if config is not None:
         message = "test unsupported for {}".format(config)
-        return suite, ndk.test.result.Skipped(test, message), []
+        return suite, ndk.test.result.Skipped(test, message)
 
     try:
-        result, additional_tests = test.run(obj_dir, dist_dir, test_filters)
+        result = test.run(obj_dir, dist_dir, test_filters)
         if test.is_negative_test():
             result = _fixup_negative_test(result)
         config, bug = test.check_broken()
@@ -122,8 +122,7 @@ def _run_test(
             result = _fixup_expected_failure(result, config, bug)
     except Exception:  # pylint: disable=broad-except
         result = ndk.test.result.Failure(test, traceback.format_exc())
-        additional_tests = []
-    return suite, result, additional_tests
+    return suite, result
 
 
 class TestBuilder:
@@ -237,35 +236,20 @@ class TestBuilder:
                     )
 
             report = Report[None]()
-            self.wait_for_results(report, workqueue, test_filters)
+            self.wait_for_results(report, workqueue)
 
             return report
         finally:
             workqueue.terminate()
             workqueue.join()
 
-    def wait_for_results(
-        self,
-        report: Report[None],
-        workqueue: AnyWorkQueue,
-        test_filters: TestFilter,
-    ) -> None:
+    def wait_for_results(self, report: Report[None], workqueue: AnyWorkQueue) -> None:
         console = ndk.ansi.get_console()
         ui = ndk.ui.get_work_queue_ui(console, workqueue)
         with ndk.ansi.disable_terminal_echo(sys.stdin):
             with console.cursor_hide_context():
                 while not workqueue.finished():
-                    for suite, result, additional_tests in workqueue.get_results():
-                        assert result.passed() or not additional_tests
-                        for test in additional_tests:
-                            workqueue.add_task(
-                                _run_test,
-                                suite,
-                                test,
-                                self.obj_dir,
-                                self.dist_dir,
-                                test_filters,
-                            )
+                    for suite, result in workqueue.get_results():
                         if logger().isEnabledFor(logging.INFO):
                             ui.clear()
                             self.printer.print_result(result)
