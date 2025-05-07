@@ -4,7 +4,6 @@
 from __future__ import absolute_import, print_function
 
 import argparse
-import asyncio
 import logging
 import sys
 from asyncio import CancelledError
@@ -221,7 +220,7 @@ async def rebuild_tests(
             package_path=args.dist_dir / "ndk-tests" if args.package else None,
         )
         builder = ndk.test.builder.TestBuilder(test_spec, test_options, build_printer)
-        report = await asyncio.to_thread(builder.build)
+        report = await builder.build()
 
     if report.num_tests == 0:
         results.failed("Found no tests for filter {}.".format(args.filter))

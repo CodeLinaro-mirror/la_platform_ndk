@@ -2,7 +2,7 @@ from typing import Optional
 
 from ndk.abis import Abi
 from ndk.devenv.devices import Device
-from ndk.test.devicetest.case import TestCase
+from ndk.devenv.testrunner.case import TestCase
 
 
 def run_broken(test: TestCase, device: Device) -> tuple[Optional[str], Optional[str]]:
