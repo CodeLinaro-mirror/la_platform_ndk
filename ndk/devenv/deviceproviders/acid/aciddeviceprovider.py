@@ -16,8 +16,6 @@
 import logging
 
 from ndk.abis import Abi
-
-# TODO: This package should be moved into ndk.devenv.
 from ndk.devenv.devices import Device
 
 from ..deviceprovider import DeviceProvider

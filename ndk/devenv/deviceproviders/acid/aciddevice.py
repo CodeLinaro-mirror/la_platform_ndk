@@ -15,7 +15,6 @@
 #
 from __future__ import annotations
 
-# TODO: This package should be moved into ndk.devenv.
 from ndk.devenv.devices import Device, DeviceConfig
 from ndk.devenv.devices.adbdeviceinterface import AdbDeviceInterface
 
