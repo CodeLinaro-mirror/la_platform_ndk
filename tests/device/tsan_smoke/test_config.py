@@ -1,5 +1,5 @@
 from ndk.devenv.devices import Device
-from ndk.test.devicetest.case import TestCase
+from ndk.devenv.testrunner.case import TestCase
 
 
 def build_unsupported(test):

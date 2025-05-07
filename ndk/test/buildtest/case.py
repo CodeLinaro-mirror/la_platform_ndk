@@ -26,12 +26,10 @@ from abc import ABC, abstractmethod
 from importlib.abc import Loader
 from pathlib import Path
 from subprocess import CompletedProcess
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
-import ndk.ansi
 import ndk.ext.os
 import ndk.ext.subprocess
-import ndk.hosts
 import ndk.ndkbuild
 import ndk.paths
 from ndk.abis import Abi

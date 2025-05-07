@@ -1,18 +1,5 @@
-#
 # Copyright (C) 2024 The Android Open Source Project
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+# SPDX-License-Identifier: Apache-2.0
 """Runs a test plan on a test fleet."""
 from __future__ import annotations
 
@@ -25,9 +12,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import ndk.ansi
-import ndk.test.ui
-
-# TODO: This module should be moved into ndk.devenv.
 from ndk.devenv.devices import Device, DeviceFleet, DeviceShardingGroup
 from ndk.test.printers import Printer
 from ndk.test.report import Report
@@ -36,6 +20,7 @@ from ndk.test.result import Failure, Skipped, TestResult, UnexpectedSuccess
 from .testgroup import TestGroup
 from .testplan import TestPlan
 from .testrun import TestRun
+from .ui import TestProgressUi, get_test_progress_ui
 
 
 def logger() -> logging.Logger:
@@ -97,7 +82,7 @@ def pair_test_runs(
 
 
 async def wait_for_results(
-    ui: ndk.test.ui.TestProgressUi,
+    ui: TestProgressUi,
     report: Report[DeviceShardingGroup],
     tasks: list[Task[tuple[DeviceShardingGroup, TestResult]]],
 ) -> None:
@@ -146,7 +131,7 @@ def flake_filter(result: TestResult) -> bool:
 
 
 async def restart_flaky_tests(
-    ui: ndk.test.ui.TestProgressUi, report: Report[DeviceShardingGroup]
+    ui: TestProgressUi, report: Report[DeviceShardingGroup]
 ) -> list[Task[tuple[DeviceShardingGroup, TestResult]]]:
     """Finds and restarts any failing flaky tests."""
     rerun_tests = report.remove_all_failing_flaky(flake_filter)
@@ -203,7 +188,7 @@ async def get_and_attach_logs_for_failing_tests(
     )
 
     console = ndk.ansi.get_console()
-    ui = ndk.test.ui.get_test_progress_ui(
+    ui = get_test_progress_ui(
         console, printer, log_all_results=logger().isEnabledFor(logging.INFO)
     )
 
@@ -240,7 +225,7 @@ class TestPlanRunner:
         random.shuffle(test_runs)
 
         console = ndk.ansi.get_console()
-        ui = ndk.test.ui.get_test_progress_ui(
+        ui = get_test_progress_ui(
             console,
             self.printer,
             log_all_results=logger().isEnabledFor(logging.INFO),
@@ -256,7 +241,7 @@ class TestPlanRunner:
 
         await wait_for_results(ui, report, tasks)
 
-        ui = ndk.test.ui.get_test_progress_ui(
+        ui = get_test_progress_ui(
             console,
             self.printer,
             log_all_results=logger().isEnabledFor(logging.INFO),

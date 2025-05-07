@@ -21,7 +21,7 @@ the source directory since the buildbots expect it to be here.
 """
 import asyncio
 
-import ndk.run_tests
+from ndk.devenv.testrunner.runtests import main
 
 if __name__ == "__main__":
-    asyncio.run(ndk.run_tests.main())
+    asyncio.run(main())

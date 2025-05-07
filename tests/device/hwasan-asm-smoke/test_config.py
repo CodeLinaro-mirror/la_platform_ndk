@@ -1,6 +1,6 @@
 from ndk.devenv.devices import DeviceConfig
+from ndk.devenv.testrunner.case import TestCase
 from ndk.test.buildtest.case import Test
-from ndk.test.devicetest.case import TestCase
 from ndk.test.spec import CMakeToolchainFile
 
 

@@ -1,19 +1,5 @@
-#!/usr/bin/env python3
-#
 # Copyright (C) 2017 The Android Open Source Project
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+# SPDX-License-Identifier: Apache-2.0
 """Runs the tests built by make_tests.py."""
 from __future__ import absolute_import, print_function
 
@@ -31,16 +17,16 @@ from rich.logging import RichHandler
 import ndk.notify
 import ndk.paths
 import ndk.test.builder
-from ndk.test.devicetest.case import TestCase
-from ndk.test.devicetest.testplan import TestPlan
-from ndk.test.devicetest.testrunner import TestRunner
+from ndk.pythonenv import ensure_python_environment
 from ndk.test.filters import TestFilter
 from ndk.test.printers import StdoutPrinter
 from ndk.test.result import ResultTranslations
 from ndk.test.spec import BuildConfiguration, TestSpec
 from ndk.timer import Timer, TimingReport
 
-from .pythonenv import ensure_python_environment
+from .case import TestCase
+from .testplan import TestPlan
+from .testrunner import TestRunner
 
 
 def logger() -> logging.Logger:
