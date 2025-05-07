@@ -11,8 +11,8 @@ from pathlib import Path
 from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
 
 from ndk.abis import Abi
+from ndk.devenv.deviceproviders.acid import AcidDeviceProvider
 from ndk.devenv.devices import Device, DeviceFleet, find_devices
-from ndk.test.deviceproviders.acid import AcidDeviceProvider
 from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.spec import BuildConfiguration, TestSpec
