@@ -21,20 +21,20 @@ import os
 import pickle
 import random
 import shutil
-import sys
 import traceback
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import ndk.archive
 import ndk.test.spec
-import ndk.ui
 from ndk.test.buildtest.case import Test
 from ndk.test.buildtest.scanner import TestScanner
 from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.report import Report
 from ndk.workqueue import AnyWorkQueue, Worker, WorkQueue
+
+from .ui import TestBuildProgressUi, get_test_build_ui
 
 
 def logger() -> logging.Logger:
@@ -217,6 +217,11 @@ class TestBuilder:
     def do_build(self, test_filters: TestFilter) -> Report[None]:
         workqueue = WorkQueue()
         try:
+            ui = get_test_build_ui(
+                workqueue,
+                self.printer,
+                logger().isEnabledFor(logging.INFO),
+            )
             for suite, tests in self.tests.items():
                 # Each test configuration was expanded when each test was
                 # discovered, so the current order has all the largest tests
@@ -226,6 +231,7 @@ class TestBuilder:
                 for test in tests:
                     if not test_filters.filter(test.name):
                         continue
+                    ui.on_task_scheduled()
                     workqueue.add_task(
                         _run_test,
                         suite,
@@ -236,29 +242,21 @@ class TestBuilder:
                     )
 
             report = Report[None]()
-            self.wait_for_results(report, workqueue)
-
+            self.wait_for_results(report, workqueue, ui)
             return report
         finally:
             workqueue.terminate()
             workqueue.join()
 
-    def wait_for_results(self, report: Report[None], workqueue: AnyWorkQueue) -> None:
-        console = ndk.ansi.get_console()
-        ui = ndk.ui.get_work_queue_ui(console, workqueue)
-        with ndk.ansi.disable_terminal_echo(sys.stdin):
-            with console.cursor_hide_context():
-                while not workqueue.finished():
-                    for suite, result in workqueue.get_results():
-                        if logger().isEnabledFor(logging.INFO):
-                            ui.clear()
-                            self.printer.print_result(result)
-                        elif result.failed():
-                            ui.clear()
-                            self.printer.print_result(result)
-                        report.add_result(suite, result)
-                    ui.draw()
-                ui.clear()
+    def wait_for_results(
+        self, report: Report[None], workqueue: AnyWorkQueue, ui: TestBuildProgressUi
+    ) -> None:
+        with ui.ui_context():
+            while not workqueue.finished():
+                for suite, result in workqueue.get_results():
+                    ui.on_task_finished(result)
+                    report.add_result(suite, result)
+            ui.on_finished()
 
     async def package(self) -> None:
         assert self.test_options.package_path is not None
