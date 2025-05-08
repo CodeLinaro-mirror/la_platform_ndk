@@ -10,8 +10,16 @@ import ndk.ansi
 from ndk.ansi import Console
 from ndk.test.printers import Printer
 from ndk.test.result import TestResult
+from ndk.test.richtextcolorer import rich_text_colorer
 from ndk.ui import AnsiUiRenderer, WorkQueueUi
 from ndk.workqueue import AnyWorkQueue
+
+try:
+    from rich.progress import Progress
+
+    CAN_USE_RICH = True
+except ModuleNotFoundError:
+    CAN_USE_RICH = False
 
 
 class TestBuildProgressUi(ABC):
@@ -72,6 +80,33 @@ class WorkQueueTestBuildUi(TestBuildProgressUi):
         self.wrapped_ui.clear()
 
 
+class RichTestBuildUi(TestBuildProgressUi):
+    def __init__(self, log_all_results: bool) -> None:
+        self.log_all_results = log_all_results
+        self.progress = Progress()
+        self.total = 0
+        self.task_id = self.progress.add_task("Building tests", total=None)
+
+    @contextmanager
+    def ui_context(self) -> Iterator[None]:
+        self.progress.update(self.task_id, total=self.total)
+        with self.progress:
+            yield
+
+    def on_task_scheduled(self) -> None:
+        self.total += 1
+
+    def on_task_finished(self, result: TestResult) -> None:
+        if self.log_all_results or result.failed():
+            self.progress.console.print(
+                result.to_string(colored=True, text_colorer=rich_text_colorer)
+            )
+        self.progress.advance(self.task_id)
+
+    def on_finished(self) -> None:
+        pass
+
+
 class BasicTestBuildUi(TestBuildProgressUi):
     def __init__(
         self,
@@ -112,5 +147,7 @@ def get_test_build_ui(
 ) -> TestBuildProgressUi:
     console = ndk.ansi.get_console()
     if console.smart_console:
+        if CAN_USE_RICH:
+            return RichTestBuildUi(log_all_results)
         return WorkQueueTestBuildUi(workqueue, console, printer, log_all_results)
     return BasicTestBuildUi(printer, log_all_results)

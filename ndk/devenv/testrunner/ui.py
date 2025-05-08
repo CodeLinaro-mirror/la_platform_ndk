@@ -15,14 +15,9 @@ from ndk.ansi import Console
 from ndk.devenv.devices import DeviceShardingGroup
 from ndk.test.printers import Printer
 from ndk.test.result import TestResult
+from ndk.test.richtextcolorer import rich_text_colorer
 
 from .testrun import TestRun
-
-
-def rich_text_colorer(text: str, color: str, do_color: bool) -> str:
-    if do_color:
-        return f"[{color}]{text}[/{color}]"
-    return text
 
 
 class TestProgressUi(ABC):
