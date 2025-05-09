@@ -14,12 +14,7 @@ from ndk.test.richtextcolorer import rich_text_colorer
 from ndk.ui import AnsiUiRenderer, WorkQueueUi
 from ndk.workqueue import AnyWorkQueue
 
-try:
-    from rich.progress import Progress
-
-    CAN_USE_RICH = True
-except ModuleNotFoundError:
-    CAN_USE_RICH = False
+from .teststatusreporter import TestStatusReporter
 
 
 class TestBuildProgressUi(ABC):
@@ -80,31 +75,75 @@ class WorkQueueTestBuildUi(TestBuildProgressUi):
         self.wrapped_ui.clear()
 
 
-class RichTestBuildUi(TestBuildProgressUi):
-    def __init__(self, log_all_results: bool) -> None:
-        self.log_all_results = log_all_results
-        self.progress = Progress()
-        self.total = 0
-        self.task_id = self.progress.add_task("Building tests", total=None)
+try:
+    from rich.console import Group
+    from rich.live import Live
+    from rich.markup import escape
+    from rich.progress import Progress
+    from rich.table import Table
 
-    @contextmanager
-    def ui_context(self) -> Iterator[None]:
-        self.progress.update(self.task_id, total=self.total)
-        with self.progress:
-            yield
+    CAN_USE_RICH = True
 
-    def on_task_scheduled(self) -> None:
-        self.total += 1
+    class RichTestBuildUi(TestBuildProgressUi):
+        def __init__(
+            self, test_status_reporter: TestStatusReporter, log_all_results: bool
+        ) -> None:
+            self.test_status_reporter = test_status_reporter
+            self.log_all_results = log_all_results
+            self.progress = Progress()
+            self.longest_running_builds_table = Table()
+            self.live = Live(get_renderable=self._ui_elements)
+            self.total = 0
+            self.task_id = self.progress.add_task("Building tests", total=None)
 
-    def on_task_finished(self, result: TestResult) -> None:
-        if self.log_all_results or result.failed():
-            self.progress.console.print(
-                result.to_string(colored=True, text_colorer=rich_text_colorer)
+        @contextmanager
+        def ui_context(self) -> Iterator[None]:
+            self.progress.update(self.task_id, total=self.total)
+            with self.live:
+                yield
+
+        def on_task_scheduled(self) -> None:
+            self.total += 1
+
+        def on_task_finished(self, result: TestResult) -> None:
+            if self.log_all_results or result.failed():
+                self.progress.console.print(
+                    result.to_string(colored=True, text_colorer=rich_text_colorer)
+                )
+            self.progress.advance(self.task_id)
+
+        def on_finished(self) -> None:
+            pass
+
+        def _ui_elements(self) -> Group:
+            table = Table(
+                "Duration",
+                "Test",
+                title="Long running tests",
+                title_justify="left",
+                title_style="",
+                box=None,
+                show_header=False,
+                show_edge=False,
+                show_lines=False,
             )
-        self.progress.advance(self.task_id)
+            now = datetime.now()
+            for (
+                test,
+                start_time,
+            ) in self.test_status_reporter.iter_longest_running_tests(5):
+                elapsed = now - start_time
+                if elapsed < timedelta(seconds=1):
+                    break
+                total_seconds = elapsed.total_seconds()
+                minutes = int(total_seconds // 60)
+                seconds = int(total_seconds % 60)
+                table.add_row(f"{minutes:02}:{seconds:02}", escape(str(test)))
 
-    def on_finished(self) -> None:
-        pass
+            return Group(self.progress, table)
+
+except ModuleNotFoundError:
+    CAN_USE_RICH = False
 
 
 class BasicTestBuildUi(TestBuildProgressUi):
@@ -143,11 +182,14 @@ class BasicTestBuildUi(TestBuildProgressUi):
 
 
 def get_test_build_ui(
-    workqueue: AnyWorkQueue, printer: Printer, log_all_results: bool
+    workqueue: AnyWorkQueue,
+    printer: Printer,
+    build_status_reporter: TestStatusReporter,
+    log_all_results: bool,
 ) -> TestBuildProgressUi:
     console = ndk.ansi.get_console()
     if console.smart_console:
         if CAN_USE_RICH:
-            return RichTestBuildUi(log_all_results)
+            return RichTestBuildUi(build_status_reporter, log_all_results)
         return WorkQueueTestBuildUi(workqueue, console, printer, log_all_results)
     return BasicTestBuildUi(printer, log_all_results)
