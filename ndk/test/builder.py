@@ -34,6 +34,7 @@ from ndk.test.printers import Printer
 from ndk.test.report import Report
 from ndk.workqueue import AnyWorkQueue, Worker, WorkQueue
 
+from .teststatusreporter import TestStatusReporter
 from .ui import TestBuildProgressUi, get_test_build_ui
 
 
@@ -89,6 +90,7 @@ def _run_test(
     obj_dir: Path,
     dist_dir: Path,
     test_filters: TestFilter,
+    build_status_reporter: TestStatusReporter,
 ) -> RunTestResult:
     """Runs a given test according to the given filters.
 
@@ -111,7 +113,8 @@ def _run_test(
         return suite, ndk.test.result.Skipped(test, message)
 
     try:
-        result = test.run(obj_dir, dist_dir, test_filters)
+        with build_status_reporter.test_run_context(test):
+            result = test.run(obj_dir, dist_dir, test_filters)
         if test.is_negative_test():
             result = _fixup_negative_test(result)
         config, bug = test.check_broken()
@@ -217,9 +220,11 @@ class TestBuilder:
     def do_build(self, test_filters: TestFilter) -> Report[None]:
         workqueue = WorkQueue()
         try:
+            build_status_reporter = TestStatusReporter(workqueue.manager)
             ui = get_test_build_ui(
                 workqueue,
                 self.printer,
+                build_status_reporter,
                 logger().isEnabledFor(logging.INFO),
             )
             for suite, tests in self.tests.items():
@@ -239,6 +244,7 @@ class TestBuilder:
                         self.obj_dir,
                         self.dist_dir,
                         test_filters,
+                        build_status_reporter,
                     )
 
             report = Report[None]()

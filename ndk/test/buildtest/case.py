@@ -92,6 +92,17 @@ class Test(ABC):
     def __str__(self) -> str:
         return f"{self.name} [{self.config}]"
 
+    # This (and __eq__) are pretty fragile but are fine for the current implementation.
+    # None of the members are ever mutated. If that were to ever change, we'd need a
+    # more explicit implementation. It'd probably be better to rearrange this class so
+    # we can keep all the test definition stuff in an immutable dataclass so we can
+    # guarantee good __eq__ behavior.
+    def __hash__(self) -> int:
+        return hash(tuple(self.__dict__))
+
+    def __eq__(self, other: object) -> bool:
+        return self.__dict__ == other.__dict__
+
 
 class BuildTest(Test):
     def __init__(
