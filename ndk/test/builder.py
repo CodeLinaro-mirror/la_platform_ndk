@@ -16,23 +16,25 @@
 """APIs for enumerating and building NDK tests."""
 from __future__ import absolute_import
 
+import asyncio
 import logging
 import os
 import pickle
 import random
 import shutil
 import traceback
+from asyncio import Task
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import ndk.archive
 import ndk.test.spec
+from ndk.buildtasklimiter import BuildTaskLimiter
 from ndk.test.buildtest.case import Test
 from ndk.test.buildtest.scanner import TestScanner
 from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.report import Report
-from ndk.workqueue import AnyWorkQueue, Worker, WorkQueue
 
 from .teststatusreporter import TestStatusReporter
 from .ui import TestBuildProgressUi, get_test_build_ui
@@ -83,8 +85,8 @@ def _fixup_negative_test(
 RunTestResult = tuple[str, ndk.test.result.TestResult]
 
 
-def _run_test(
-    worker: Worker,
+async def _run_test(
+    limiter: BuildTaskLimiter,
     suite: str,
     test: Test,
     obj_dir: Path,
@@ -95,7 +97,6 @@ def _run_test(
     """Runs a given test according to the given filters.
 
     Args:
-        worker: The worker that invoked this task.
         suite: Name of the test suite the test belongs to.
         test: The test to be run.
         obj_dir: Out directory for intermediate build artifacts.
@@ -105,16 +106,15 @@ def _run_test(
     Returns: Tuple of (suite, TestResult, [Test]). The [Test] element is a list
              of additional tests to be run.
     """
-    worker.status = "Building {}".format(test)
-
     config = test.check_unsupported()
     if config is not None:
         message = "test unsupported for {}".format(config)
         return suite, ndk.test.result.Skipped(test, message)
 
     try:
-        with build_status_reporter.test_run_context(test):
-            result = test.run(obj_dir, dist_dir, test_filters)
+        async with limiter.rate_limited():
+            with build_status_reporter.test_run_context(test):
+                result = await test.run(obj_dir, dist_dir, test_filters)
         if test.is_negative_test():
             result = _fixup_negative_test(result)
         config, bug = test.check_broken()
@@ -210,57 +210,61 @@ class TestBuilder:
         self.make_out_dirs()
 
         test_filters = TestFilter.from_string(self.test_options.test_filter)
-        result = self.do_build(test_filters)
+        result = await self.do_build(test_filters)
         if self.test_options.build_report:
             write_build_report(self.test_options.build_report, result)
         if result.successful and self.test_options.package_path is not None:
             await self.package()
         return result
 
-    def do_build(self, test_filters: TestFilter) -> Report[None]:
-        workqueue = WorkQueue()
-        try:
-            build_status_reporter = TestStatusReporter(workqueue.manager)
-            ui = get_test_build_ui(
-                self.printer,
-                build_status_reporter,
-                logger().isEnabledFor(logging.INFO),
-            )
-            for suite, tests in self.tests.items():
-                # Each test configuration was expanded when each test was
-                # discovered, so the current order has all the largest tests
-                # right next to each other. Spread them out to try to avoid
-                # having too many heavy builds happening simultaneously.
-                random.shuffle(tests)
-                for test in tests:
-                    if not test_filters.filter(test.name):
-                        continue
-                    ui.on_task_scheduled()
-                    workqueue.add_task(
-                        _run_test,
-                        suite,
-                        test,
-                        self.obj_dir,
-                        self.dist_dir,
-                        test_filters,
-                        build_status_reporter,
+    async def do_build(self, test_filters: TestFilter) -> Report[None]:
+        build_status_reporter = TestStatusReporter()
+        ui = get_test_build_ui(
+            self.printer,
+            build_status_reporter,
+            logger().isEnabledFor(logging.INFO),
+        )
+        limiter = await BuildTaskLimiter.create()
+        tasks = []
+        for suite, tests in self.tests.items():
+            # Each test configuration was expanded when each test was
+            # discovered, so the current order has all the largest tests
+            # right next to each other. Spread them out to try to avoid
+            # having too many heavy builds happening simultaneously.
+            random.shuffle(tests)
+            for test in tests:
+                if not test_filters.filter(test.name):
+                    continue
+                ui.on_task_scheduled()
+                tasks.append(
+                    asyncio.create_task(
+                        _run_test(
+                            limiter,
+                            suite,
+                            test,
+                            self.obj_dir,
+                            self.dist_dir,
+                            test_filters,
+                            build_status_reporter,
+                        )
                     )
+                )
 
-            report = Report[None]()
-            self.wait_for_results(report, workqueue, ui)
-            return report
-        finally:
-            workqueue.terminate()
-            workqueue.join()
+        report = Report[None]()
+        await self.wait_for_results(report, tasks, ui)
+        return report
 
-    def wait_for_results(
-        self, report: Report[None], workqueue: AnyWorkQueue, ui: TestBuildProgressUi
+    async def wait_for_results(
+        self,
+        report: Report[None],
+        tasks: list[Task[RunTestResult]],
+        ui: TestBuildProgressUi,
     ) -> None:
         with ui.ui_context():
-            while not workqueue.finished():
-                for suite, result in workqueue.get_results():
-                    ui.on_task_finished(result)
-                    report.add_result(suite, result)
+            for task in asyncio.as_completed(tasks):
+                suite, result = await task
+                ui.on_task_finished(result)
+                report.add_result(suite, result)
             ui.on_finished()
 
     async def package(self) -> None:

@@ -18,11 +18,11 @@ from __future__ import absolute_import
 
 import multiprocessing
 import os
-import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
 
 from ndk.abis import Abi
+from ndk.ext.subprocess import async_run
 
 
 def make_build_command(ndk_path: Path) -> list[str]:
@@ -33,7 +33,7 @@ def make_build_command(ndk_path: Path) -> list[str]:
     return cmd
 
 
-def build(
+async def build(
     ndk_path: Path,
     project_path: Path,
     abis: list[Abi] | None = None,
@@ -56,10 +56,4 @@ def build(
     if flags is not None:
         args.extend(flags)
 
-    return subprocess.run(
-        args,
-        check=False,
-        cwd=project_path,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    return await async_run(args, check=False, cwd=project_path, capture_output=True)

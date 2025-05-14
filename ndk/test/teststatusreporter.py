@@ -1,19 +1,18 @@
 # Copyright (C) 2025 The Android Open Source Project
 # SPDX-License-Identifier: Apache-2.0
-from collections.abc import Iterator, MutableMapping
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
-from multiprocessing.managers import SyncManager
 
 from .buildtest.case import Test
 
 
 class TestStatusReporter:
-    def __init__(self, manager: SyncManager) -> None:
+    def __init__(self) -> None:
         # This assumes that the string representation of the test will be
         # unique. If that assumption is wrong, it really ought to be for UI
         # reasons anyway, so fix Test.__str__, not this.
-        self.running_tests: MutableMapping[Test, datetime] = manager.dict()
+        self.running_tests: dict[Test, datetime] = {}
 
     def report_test_started(self, test: Test) -> None:
         self.running_tests[test] = datetime.now()

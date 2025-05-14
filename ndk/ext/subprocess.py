@@ -91,8 +91,9 @@ async def async_run(
     cmd: Sequence[str | Path],
     check: bool,
     cwd: Path | None = None,
+    env: dict[str, str] | None = None,
     capture_output: bool = False,
-) -> asyncio.subprocess.Process:
+) -> subprocess.CompletedProcess[bytes]:
     """Runs and logs an asyncio subprocess."""
     stdout = None
     stderr = None
@@ -101,11 +102,12 @@ async def async_run(
         stderr = subprocess.PIPE
     logger().debug("exec CWD=%s %s", cwd or Path.cwd(), shlex.join(str(a) for a in cmd))
     proc = await asyncio.create_subprocess_exec(
-        cmd[0], *cmd[1:], cwd=cwd, stdout=stdout, stderr=stderr
+        cmd[0], *cmd[1:], cwd=cwd, stdout=stdout, stderr=stderr, env=env
     )
-    await proc.communicate()
-    if check and proc.returncode != 0:
+    out, err = await proc.communicate()
+    return_code = await proc.wait()
+    if check and return_code != 0:
         raise RuntimeError(
             f"Command failed: CWD={cwd or Path.cwd()} {shlex.join(str(a) for a in cmd)}"
         )
-    return proc
+    return subprocess.CompletedProcess(cmd, return_code, out, err)
