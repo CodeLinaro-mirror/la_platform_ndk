@@ -1,18 +1,14 @@
 # Copyright (C) 2025 The Android Open Source Project
 # SPDX-License-Identifier: Apache-2.0
-import sys
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 import ndk.ansi
-from ndk.ansi import Console
 from ndk.test.printers import Printer
 from ndk.test.result import TestResult
 from ndk.test.richtextcolorer import rich_text_colorer
-from ndk.ui import AnsiUiRenderer, WorkQueueUi
-from ndk.workqueue import AnyWorkQueue
 
 from .teststatusreporter import TestStatusReporter
 
@@ -34,45 +30,6 @@ class TestBuildProgressUi(ABC):
     @abstractmethod
     def on_finished(self) -> None:
         """Called when all test builds are completed."""
-
-
-class WorkQueueTestBuildUi(TestBuildProgressUi):
-    def __init__(
-        self,
-        workqueue: AnyWorkQueue,
-        console: Console,
-        printer: Printer,
-        log_all_results: bool,
-    ) -> None:
-        if not console.smart_console:
-            raise RuntimeError(
-                "WorkQueueTestBuildUi can only be used with smart consoles"
-            )
-
-        self.console = ndk.ansi.get_console()
-        self.printer = printer
-        self.log_all_results = log_all_results
-        self.wrapped_ui = WorkQueueUi(
-            AnsiUiRenderer(self.console), show_worker_status=True, workqueue=workqueue
-        )
-
-    @contextmanager
-    def ui_context(self) -> Iterator[None]:
-        with ndk.ansi.disable_terminal_echo(sys.stdin):
-            with self.console.cursor_hide_context():
-                yield
-
-    def on_task_scheduled(self) -> None:
-        pass
-
-    def on_task_finished(self, result: TestResult) -> None:
-        if self.log_all_results or result.failed():
-            self.wrapped_ui.clear()
-            self.printer.print_result(result)
-        self.wrapped_ui.draw()
-
-    def on_finished(self) -> None:
-        self.wrapped_ui.clear()
 
 
 try:
@@ -182,14 +139,11 @@ class BasicTestBuildUi(TestBuildProgressUi):
 
 
 def get_test_build_ui(
-    workqueue: AnyWorkQueue,
     printer: Printer,
     build_status_reporter: TestStatusReporter,
     log_all_results: bool,
 ) -> TestBuildProgressUi:
     console = ndk.ansi.get_console()
     if console.smart_console:
-        if CAN_USE_RICH:
-            return RichTestBuildUi(build_status_reporter, log_all_results)
-        return WorkQueueTestBuildUi(workqueue, console, printer, log_all_results)
+        return RichTestBuildUi(build_status_reporter, log_all_results)
     return BasicTestBuildUi(printer, log_all_results)

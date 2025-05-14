@@ -222,7 +222,6 @@ class TestBuilder:
         try:
             build_status_reporter = TestStatusReporter(workqueue.manager)
             ui = get_test_build_ui(
-                workqueue,
                 self.printer,
                 build_status_reporter,
                 logger().isEnabledFor(logging.INFO),
