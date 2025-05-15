@@ -2410,7 +2410,7 @@ def build_ndk(
     else:
         workqueue = ndk.workqueue.WorkQueue(args.jobs)
     try:
-        ui = ndk.ui.get_build_progress_ui(workqueue, args.debuggable)
+        ui = ndk.ui.get_build_progress_ui()
         launch_buildable(
             ui, deps, workqueue, log_dir, args.debuggable, args.skip_deps, deps_only
         )
