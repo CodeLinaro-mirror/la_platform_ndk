@@ -120,11 +120,12 @@ class BuildTest(Test):
         flags = self.config.get_extra_cmake_flags()
         return flags + self.get_extra_cmake_flags()
 
-    def make_build_result(self, proc: CompletedProcess[str]) -> TestResult:
+    def make_build_result(self, proc: CompletedProcess[bytes]) -> TestResult:
         if proc.returncode == 0:
             return Success(self)
         return Failure(
-            self, f"Test build failed: {shlex.join(proc.args)}:\n{proc.stdout}"
+            self,
+            f"Test build failed: {shlex.join(proc.args)}:\n{proc.stdout.decode('utf-8')}",
         )
 
     def verify_no_cruft_in_dist(
@@ -399,14 +400,15 @@ def _run_ndk_build_test(
     ndk_path: Path,
     ndk_build_flags: List[str],
     abi: Abi,
-) -> CompletedProcess[str]:
+) -> CompletedProcess[bytes]:
     _prep_build_dir(test_dir, obj_dir)
-    with ndk.ext.os.cd(obj_dir):
-        args = [
-            f"APP_ABI={abi}",
-            f"NDK_LIBS_OUT={dist_dir}",
-        ] + _get_jobs_args()
-        return ndk.ndkbuild.build(ndk_path, args + ndk_build_flags)
+    return ndk.ndkbuild.build(
+        ndk_path,
+        obj_dir,
+        abis=[abi],
+        dist_dir=dist_dir,
+        flags=ndk_build_flags,
+    )
 
 
 class CMakeBuildTest(BuildTest):
@@ -465,7 +467,7 @@ def _run_cmake_build_test(
     cmake_flags: List[str],
     abi: str,
     use_legacy_toolchain_file: bool,
-) -> CompletedProcess[str]:
+) -> CompletedProcess[bytes]:
     _prep_build_dir(test_dir, obj_dir)
 
     cmake_bin = find_cmake()
@@ -493,7 +495,6 @@ def _run_cmake_build_test(
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        encoding="utf-8",
     )
     if proc.returncode != 0:
         return proc
@@ -502,5 +503,4 @@ def _run_cmake_build_test(
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        encoding="utf-8",
     )
