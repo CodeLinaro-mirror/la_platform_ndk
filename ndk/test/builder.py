@@ -30,13 +30,13 @@ from typing import Dict, List, Tuple
 import ndk.archive
 import ndk.test.spec
 from ndk.buildtasklimiter import BuildTaskLimiter
+from ndk.taskstatusreporter import TaskStatusReporter
 from ndk.test.buildtest.case import Test
 from ndk.test.buildtest.scanner import TestScanner
 from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.report import Report
 
-from .teststatusreporter import TestStatusReporter
 from .ui import TestBuildProgressUi, get_test_build_ui
 
 
@@ -92,7 +92,7 @@ async def _run_test(
     obj_dir: Path,
     dist_dir: Path,
     test_filters: TestFilter,
-    build_status_reporter: TestStatusReporter,
+    build_status_reporter: TaskStatusReporter[Test],
 ) -> RunTestResult:
     """Runs a given test according to the given filters.
 
@@ -113,7 +113,7 @@ async def _run_test(
 
     try:
         async with limiter.rate_limited():
-            with build_status_reporter.test_run_context(test):
+            with build_status_reporter.task_run_context(test):
                 result = await test.run(obj_dir, dist_dir, test_filters)
         if test.is_negative_test():
             result = _fixup_negative_test(result)
@@ -218,7 +218,7 @@ class TestBuilder:
         return result
 
     async def do_build(self, test_filters: TestFilter) -> Report[None]:
-        build_status_reporter = TestStatusReporter()
+        build_status_reporter: TaskStatusReporter[Test] = TaskStatusReporter()
         ui = get_test_build_ui(
             self.printer,
             build_status_reporter,
