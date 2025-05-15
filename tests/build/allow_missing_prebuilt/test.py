@@ -14,42 +14,32 @@
 # limitations under the License.
 #
 """Check that LOCAL_ALLOW_MISSING_PREBUILT is obeyed."""
-import os
 from pathlib import Path
-import subprocess
-import sys
+from subprocess import CalledProcessError
 from typing import Optional
 
 from ndk.test.spec import BuildConfiguration
+from ndk.testing.builders import NdkBuildBuilder
 
 
 PROJECT_PATH = Path("project")
 
 
 def ndk_build(
-    ndk_path: str, config: BuildConfiguration, sync_only: bool = False
+    ndk_path: Path, config: BuildConfiguration, sync_only: bool = False
 ) -> tuple[bool, str]:
-    ndk_build_path = os.path.join(ndk_path, "ndk-build")
-    if sys.platform == "win32":
-        ndk_build_path += ".cmd"
-    ndk_args = [
-        f"APP_ABI={config.abi}",
-        f"APP_PLATFORM=android-{config.api}",
-    ]
+    flags = []
     if sync_only:
-        ndk_args.append("-n")
-    proc = subprocess.run(
-        [ndk_build_path, "-C", str(PROJECT_PATH)] + ndk_args,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        encoding="utf-8",
-    )
-    return proc.returncode == 0, proc.stdout
+        flags = ["-n"]
+    builder = NdkBuildBuilder.from_build_config(PROJECT_PATH, ndk_path, config, flags)
+    try:
+        return True, builder.build()
+    except CalledProcessError as ex:
+        return False, ex.stdout
 
 
 def check_build_fail_if_missing(
-    ndk_path: str, config: BuildConfiguration
+    ndk_path: Path, config: BuildConfiguration
 ) -> Optional[str]:
     """Checks that the build fails if the libraries are missing."""
     success, output = ndk_build(ndk_path, config)
@@ -59,7 +49,7 @@ def check_build_fail_if_missing(
 
 
 def check_sync_pass_if_missing(
-    ndk_path: str, config: BuildConfiguration
+    ndk_path: Path, config: BuildConfiguration
 ) -> Optional[str]:
     """Checks that the build fails if the libraries are missing."""
     success, output = ndk_build(ndk_path, config, sync_only=True)
@@ -69,7 +59,7 @@ def check_sync_pass_if_missing(
 
 
 def check_build_pass_if_present(
-    ndk_path: str, config: BuildConfiguration
+    ndk_path: Path, config: BuildConfiguration
 ) -> Optional[str]:
     """Checks that the build fails if the libraries are missing."""
     prebuilt_dir = PROJECT_PATH / "jni" / config.abi
@@ -82,7 +72,7 @@ def check_build_pass_if_present(
     return f"Build should have passed because prebuilts are present:\n{output}"
 
 
-def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str]:
+def run_test(ndk_path: Path, config: BuildConfiguration) -> tuple[bool, str]:
     """Check that LOCAL_ALLOW_MISSING_PREBUILT is obeyed.
 
     LOCAL_ALLOW_MISSING_PREBUILT should prevent
