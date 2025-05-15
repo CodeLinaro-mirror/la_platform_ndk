@@ -174,13 +174,13 @@ def create_signer_metadata(package_dir: Path) -> None:
     volumename_file.write_text(f"Android NDK {ndk.config.release}")
 
 
-def make_app_bundle(
-    worker: ndk.workqueue.Worker,
+async def make_app_bundle(
+    task_id: str,
     zip_path: Path,
     ndk_dir: Path,
     build_number: int,
     build_dir: Path,
-) -> None:
+) -> str:
     """Builds a macOS App Bundle of the NDK.
 
     The NDK is distributed in two forms on macOS: as a app bundle and in the
@@ -200,7 +200,6 @@ def make_app_bundle(
         ndk_dir: The path to the NDK being bundled.
         build_dir: The path to the top level build directory.
     """
-    worker.status = "Packaging MacOS App Bundle"
     package_dir = build_dir / "bundle"
     app_directory_name = f"AndroidNDK{build_number}.app"
     bundle_dir = package_dir / app_directory_name
@@ -212,35 +211,36 @@ def make_app_bundle(
     create_stub_entry_point(contents_dir / "MacOS" / entry_point_name)
 
     bundled_ndk = contents_dir / "NDK"
-    shutil.copytree(ndk_dir, bundled_ndk, symlinks=True)
+    await asyncio.to_thread(shutil.copytree, ndk_dir, bundled_ndk, symlinks=True)
 
     plist = contents_dir / "Info.plist"
     create_plist(plist, get_version_string(build_number), entry_point_name)
 
     shutil.copy2(ndk_dir / "source.properties", package_dir / "source.properties")
     create_signer_metadata(package_dir)
-    ndk.archive.make_zip(
+    await ndk.archive.make_zip(
         zip_path,
         package_dir,
         [p.name for p in package_dir.iterdir()],
         preserve_symlinks=True,
     )
+    return task_id
 
 
-def make_zip(
-    worker: ndk.workqueue.Worker,
+async def make_zip(
+    task_id: str,
     base_name: Path,
     root_dir: Path,
     paths: List[str],
     preserve_symlinks: bool,
-) -> None:
-    worker.status = "Packaging .zip"
-    ndk.archive.make_zip(
+) -> str:
+    await ndk.archive.make_zip(
         base_name, root_dir, paths, preserve_symlinks=preserve_symlinks
     )
+    return task_id
 
 
-def package_ndk(
+async def package_ndk(
     ndk_dir: Path, out_dir: Path, dist_dir: Path, host: Host, build_number: int
 ) -> Path:
     """Packages the built NDK for distribution.
@@ -257,28 +257,40 @@ def package_ndk(
 
     purge_unwanted_files(ndk_dir)
 
-    workqueue: ndk.workqueue.WorkQueue = ndk.workqueue.WorkQueue()
-    try:
-        if host == Host.Darwin:
-            workqueue.add_task(
-                make_app_bundle,
-                dist_dir / f"android-ndk-{build_number}-app-bundle",
-                ndk_dir,
-                build_number,
-                out_dir,
+    zip_archive_description = "Creating zip archive"
+    app_bundle_description = "Creating app bundle"
+    ui = ndk.ui.get_task_progress_ui()
+    tasks = []
+    if host is Host.Darwin:
+        ui.start_task(app_bundle_description)
+        tasks.append(
+            asyncio.create_task(
+                make_app_bundle(
+                    app_bundle_description,
+                    dist_dir / f"android-ndk-{build_number}-app-bundle",
+                    ndk_dir,
+                    build_number,
+                    out_dir,
+                )
             )
-        workqueue.add_task(
-            make_zip,
-            package_path,
-            ndk_dir.parent,
-            [ndk_dir.name],
-            preserve_symlinks=(host != Host.Windows64),
         )
-        ndk.ui.finish_workqueue_with_ui(workqueue, ndk.ui.get_build_progress_ui)
-    finally:
-        workqueue.terminate()
-        workqueue.join()
-    # TODO: Treat the .tar.br archive as authoritative and return its path.
+
+    ui.start_task(zip_archive_description)
+    tasks.append(
+        asyncio.create_task(
+            make_zip(
+                zip_archive_description,
+                package_path,
+                ndk_dir.parent,
+                [ndk_dir.name],
+                preserve_symlinks=(host != Host.Windows64),
+            )
+        )
+    )
+
+    with ui.context():
+        for task in asyncio.as_completed(tasks):
+            ui.finish_task(await task)
     return package_path.with_suffix(".zip")
 
 
@@ -2557,7 +2569,7 @@ async def main(argv: Sequence[str] | None = None) -> None:
             # part of packaging. If testing is ever moved to happen before
             # packaging, ensure that the directory is purged before and after
             # building the tests.
-            package_path = package_ndk(
+            package_path = await package_ndk(
                 ndk_dir, out_dir, dist_dir, args.system, args.build_number
             )
             packaged_size_bytes = package_path.stat().st_size

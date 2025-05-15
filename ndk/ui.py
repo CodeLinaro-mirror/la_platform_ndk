@@ -16,11 +16,13 @@
 """UI classes for build output."""
 from __future__ import absolute_import, division, print_function
 
-import math
 import os
 import sys
 import time
-from typing import Callable, Iterable, List, Optional, Tuple, cast
+from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Iterable, List, Optional, Tuple
 
 import ndk.ansi
 from ndk.workqueue import AnyWorkQueue
@@ -198,81 +200,65 @@ class NonAnsiBuildProgressUi(Ui):
         pass
 
 
-def get_work_queue_ui(console: ndk.ansi.Console, workqueue: AnyWorkQueue) -> Ui:
-    """Returns the appropriate work queue console UI for the given console."""
-    ui_renderer: UiRenderer
-    if console.smart_console:
-        ui_renderer = AnsiUiRenderer(console)
-        show_worker_status = True
-    else:
-        ui_renderer = NonAnsiUiRenderer(console)
-        show_worker_status = False
-    return WorkQueueUi(ui_renderer, show_worker_status, workqueue)
+class TaskProgressUi(ABC):
+    @abstractmethod
+    def start_task(self, description: str) -> None:
+        pass
+
+    @abstractmethod
+    def finish_task(self, description: str) -> None:
+        pass
+
+    @abstractmethod
+    @contextmanager
+    def context(self) -> Iterator[None]:
+        pass
 
 
-def columnate(lines: List[str], max_width: int, max_height: int) -> List[str]:
-    """Distributes lines of text into height limited columns."""
-    if os.name == "nt":
-        # Not yet implemented.
-        return lines
+class BasicTaskProgressUi(TaskProgressUi):
+    def start_task(self, description: str) -> None:
+        print(f"{description}...")
 
-    num_columns = int(math.ceil(len(lines) / max_height))
-    if num_columns == 1:
-        return lines
+    def finish_task(self, description: str) -> None:
+        print(f"Finished {description}")
 
-    # Keep the columns roughly balanced.
-    num_rows = int(math.ceil(len(lines) / num_columns))
-    rows = [lines[r::num_rows] for r in range(num_rows)]
-
-    column_width = max_width // num_columns
-    return ["".join(s.ljust(column_width) for s in row) for row in rows]
+    @contextmanager
+    def context(self) -> Iterator[None]:
+        yield
 
 
-class WorkQueueUi(Ui):
-    """A UI for showing the status of WorkQueue workers."""
+try:
+    from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
 
-    NUM_TESTS_DIGITS = 6
+    CAN_USE_RICH = True
 
-    def __init__(
-        self, ui_renderer: UiRenderer, show_worker_status: bool, workqueue: AnyWorkQueue
-    ) -> None:
-        super().__init__(ui_renderer)
-        self.show_worker_status = show_worker_status
-        self.workqueue = workqueue
-
-    def get_ui_lines(self) -> List[str]:
-        lines = []
-
-        if self.show_worker_status:
-            for worker in self.workqueue.workers:
-                lines.append(worker.status)
-
-        if self.ui_renderer.console.smart_console:
-            # Keep some space at the top of the UI so we can see messages.
-            ansi_console = cast(ndk.ansi.AnsiConsole, self.ui_renderer.console)
-            ui_height = ansi_console.height - 10
-            if ui_height > 0:
-                lines = columnate(lines, ansi_console.width, ui_height)
-
-        lines.append(
-            "{: >{width}} jobs remaining".format(
-                self.workqueue.num_tasks, width=self.NUM_TESTS_DIGITS
+    class RichTaskProgressUi(TaskProgressUi):
+        def __init__(self) -> None:
+            self.progress = Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TimeElapsedColumn(),
             )
-        )
-        return lines
+            self.task_ids: dict[str, TaskID] = {}
+
+        def start_task(self, description: str) -> None:
+            if description in self.task_ids:
+                raise KeyError(f"Duplicate task: {description}")
+            self.task_ids[description] = self.progress.add_task(description, total=None)
+
+        def finish_task(self, description: str) -> None:
+            self.progress.update(self.task_ids[description], completed=True, total=1)
+
+        @contextmanager
+        def context(self) -> Iterator[None]:
+            with self.progress:
+                yield
+
+except ModuleNotFoundError:
+    CAN_USE_RICH = False
 
 
-def finish_workqueue_with_ui(
-    workqueue: ndk.workqueue.WorkQueue,
-    ui_fn: Callable[[ndk.ansi.Console, ndk.workqueue.WorkQueue], Ui],
-) -> None:
-    console = ndk.ansi.get_console()
-    ui = ui_fn(console, workqueue)
-    with ndk.ansi.disable_terminal_echo(sys.stdin):
-        with console.cursor_hide_context():
-            ui.draw()
-            while not workqueue.finished():
-                ui.draw()
-                workqueue.get_result()
-                ui.draw()
-            ui.clear()
+def get_task_progress_ui() -> TaskProgressUi:
+    if CAN_USE_RICH and ndk.ansi.get_console().smart_console:
+        return RichTaskProgressUi()
+    return BasicTaskProgressUi()
