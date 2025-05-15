@@ -25,9 +25,11 @@ from ndk.test.spec import BuildConfiguration
 from ndk.testing.flag_verifier import FlagVerifier
 
 
-def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, Optional[str]]:
+def run_test(
+    test_dir: Path, ndk_path: Path, config: BuildConfiguration
+) -> tuple[bool, Optional[str]]:
     """Checks correct --no-undefined-version use."""
-    verifier = FlagVerifier(Path("project"), Path(ndk_path), config)
+    verifier = FlagVerifier(test_dir / "project", ndk_path, config)
     verifier.expect_flag("-Wl,--no-undefined-version")
     result = verifier.verify()
     if result.failed():
@@ -37,7 +39,7 @@ def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, Optional[
     # in the Android.mk. It's unusual, but doing it this way lets us avoid duplicating
     # the test.
     verifier = (
-        FlagVerifier(Path("project"), Path(ndk_path), config)
+        FlagVerifier(test_dir / "project", ndk_path, config)
         .with_cmake_flag("-DANDROID_ALLOW_UNDEFINED_VERSION_SCRIPT_SYMBOLS=ON")
         .with_ndk_build_flag("LOCAL_ALLOW_UNDEFINED_VERSION_SCRIPT_SYMBOLS=true")
     )

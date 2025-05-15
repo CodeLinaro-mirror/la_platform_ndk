@@ -60,9 +60,11 @@ def readelf(ndk_path: Path, host: ndk.hosts.Host, library: Path, *args: str) -> 
     ).stdout
 
 
-def run_test(ndk_path: Path, config: BuildConfiguration) -> tuple[bool, str]:
+def run_test(
+    test_dir: Path, ndk_path: Path, config: BuildConfiguration
+) -> tuple[bool, str]:
     """Check that unwinder symbols are hidden in outputs."""
-    project_path = Path("project")
+    project_path = test_dir / "project"
     builder = NdkBuildBuilder.from_build_config(project_path, ndk_path, config)
     try:
         builder.build()
