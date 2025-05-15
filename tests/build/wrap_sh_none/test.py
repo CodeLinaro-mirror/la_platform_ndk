@@ -14,34 +14,23 @@
 # limitations under the License.
 #
 """Check for no wrap.sh from ndk-build."""
-import os
-import subprocess
-import sys
+from subprocess import CalledProcessError
+from pathlib import Path
 
 from ndk.test.spec import BuildConfiguration
+from ndk.testing.builders import NdkBuildBuilder
 
 
-def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str]:
+def run_test(ndk_path: Path, config: BuildConfiguration) -> tuple[bool, str]:
     """Checks that the proper wrap.sh scripts were installed."""
-    ndk_build = os.path.join(ndk_path, "ndk-build")
-    if sys.platform == "win32":
-        ndk_build += ".cmd"
-    project_path = "project"
-    ndk_args = [
-        f"APP_ABI={config.abi}",
-        f"APP_PLATFORM=android-{config.api}",
-    ]
-    proc = subprocess.Popen(
-        [ndk_build, "-C", project_path] + ndk_args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        encoding="utf-8",
-    )
-    out, _ = proc.communicate()
-    if proc.returncode != 0:
-        return proc.returncode == 0, out
+    project_path = Path("project")
+    builder = NdkBuildBuilder.from_build_config(project_path, ndk_path, config)
+    try:
+        builder.build()
+    except CalledProcessError as ex:
+        return False, ex.stdout
 
-    wrap_sh = os.path.join(project_path, "libs", config.abi, "wrap.sh")
-    if os.path.exists(wrap_sh):
+    wrap_sh = project_path / "libs" / str(config.abi) / "wrap.sh"
+    if wrap_sh.exists():
         return False, "{} should not exist".format(wrap_sh)
     return True, ""
