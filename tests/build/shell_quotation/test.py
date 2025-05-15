@@ -13,48 +13,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""Check for correct addition of shell quotes around fragile arguments.
-"""
+"""Check for correct addition of shell quotes around fragile arguments."""
 import json
-import os
-import subprocess
-import sys
 import textwrap
+from subprocess import CalledProcessError
+from pathlib import Path
 
 from ndk.test.spec import BuildConfiguration
+from ndk.testing.builders import NdkBuildBuilder
 
 
-def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str]:
+def run_test(ndk_path: Path, config: BuildConfiguration) -> tuple[bool, str]:
     """Checks that shell quotations are applied to a fragile argument."""
-    ndk_build = os.path.join(ndk_path, "ndk-build")
-    if sys.platform == "win32":
-        ndk_build += ".cmd"
-    project_path = "project"
+    project_path = Path("project")
     fragile_flag = '-Dfooyoo="a + b"'
     fragile_argument = "APP_CFLAGS+=" + fragile_flag
     quoted_fragile_flag = "'-Dfooyoo=a + b'"
-    ndk_args = [
-        f"APP_ABI={config.abi}",
-        f"APP_PLATFORM=android-{config.api}",
-        fragile_argument,
-        "-B",
-        "compile_commands.json",
-    ]
-    proc = subprocess.Popen(
-        [ndk_build, "-C", project_path] + ndk_args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        encoding="utf-8",
-    )
-    out, _ = proc.communicate()
-    if proc.returncode != 0:
-        return proc.returncode == 0, out
 
-    cc_json = os.path.join(project_path, "compile_commands.json")
-    if not os.path.exists(cc_json):
+    builder = NdkBuildBuilder.from_build_config(
+        project_path,
+        ndk_path,
+        config,
+        ndk_build_flags=[fragile_argument, "compile_commands.json"],
+    )
+    try:
+        builder.build()
+    except CalledProcessError as ex:
+        return False, ex.stdout
+
+    cc_json = project_path / "compile_commands.json"
+    if not cc_json.exists():
         return False, "{} does not exist".format(cc_json)
 
-    with open(cc_json, encoding="utf-8") as cc_json_file:
+    with cc_json.open(encoding="utf-8") as cc_json_file:
         contents = json.load(cc_json_file)
     command_default = contents[0]["command"]
     command_short_local = contents[1]["command"]
