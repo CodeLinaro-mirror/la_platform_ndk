@@ -26,9 +26,6 @@ from ndk.test.spec import BuildConfiguration
 from ndk.testing.builders import CMakeBuilder, NdkBuildBuilder
 
 
-PROJECT_PATH = Path("project")
-
-
 def iter_load_alignments(readelf_output: str) -> Iterator[tuple[int, int]]:
     """Iterates over the offset and alignment of each LOAD section."""
     # Example output:
@@ -78,11 +75,14 @@ def verify_load_section_alignment_each_file(
     return True, None
 
 
-def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str | None]:
+def run_test(
+    test_dir: Path, ndk_path: Path, config: BuildConfiguration
+) -> tuple[bool, str | None]:
     """Checks that the binary's LOAD sections have the correct alignment."""
-    cmake_builder = CMakeBuilder.from_build_config(PROJECT_PATH, Path(ndk_path), config)
+    project_path = test_dir / "project"
+    cmake_builder = CMakeBuilder.from_build_config(project_path, Path(ndk_path), config)
     ndk_build_builder = NdkBuildBuilder.from_build_config(
-        PROJECT_PATH, Path(ndk_path), config
+        project_path, Path(ndk_path), config
     )
     try:
         cmake_builder.build()

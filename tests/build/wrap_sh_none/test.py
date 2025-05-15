@@ -21,9 +21,11 @@ from ndk.test.spec import BuildConfiguration
 from ndk.testing.builders import NdkBuildBuilder
 
 
-def run_test(ndk_path: Path, config: BuildConfiguration) -> tuple[bool, str]:
+def run_test(
+    test_dir: Path, ndk_path: Path, config: BuildConfiguration
+) -> tuple[bool, str]:
     """Checks that the proper wrap.sh scripts were installed."""
-    project_path = Path("project")
+    project_path = test_dir / "project"
     builder = NdkBuildBuilder.from_build_config(project_path, ndk_path, config)
     try:
         builder.build()

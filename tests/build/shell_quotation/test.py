@@ -23,9 +23,11 @@ from ndk.test.spec import BuildConfiguration
 from ndk.testing.builders import NdkBuildBuilder
 
 
-def run_test(ndk_path: Path, config: BuildConfiguration) -> tuple[bool, str]:
+def run_test(
+    test_dir: Path, ndk_path: Path, config: BuildConfiguration
+) -> tuple[bool, str]:
     """Checks that shell quotations are applied to a fragile argument."""
-    project_path = Path("project")
+    project_path = test_dir / "project"
     fragile_flag = '-Dfooyoo="a + b"'
     fragile_argument = "APP_CFLAGS+=" + fragile_flag
     quoted_fragile_flag = "'-Dfooyoo=a + b'"

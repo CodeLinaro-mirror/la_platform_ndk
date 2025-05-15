@@ -212,19 +212,20 @@ class PythonBuildTest(BuildTest):
         build_dir = self.get_build_dir(obj_dir)
         logger().info("Building test: %s", self.name)
         _prep_build_dir(self.test_dir, build_dir)
-        with ndk.ext.os.cd(build_dir):
-            spec = importlib.util.spec_from_file_location("test", "test.py")
-            if spec is None or spec.loader is None:
-                path = build_dir / "test.py"
-                raise RuntimeError(f"Could not import {path}")
-            module = importlib.util.module_from_spec(spec)
-            # https://github.com/python/typeshed/issues/2793
-            assert isinstance(spec.loader, Loader)
-            spec.loader.exec_module(module)
-            success, failure_message = module.run_test(self.ndk_path, self.config)
-            if success:
-                return Success(self)
-            return Failure(self, failure_message)
+        spec = importlib.util.spec_from_file_location("test", build_dir / "test.py")
+        if spec is None or spec.loader is None:
+            path = build_dir / "test.py"
+            raise RuntimeError(f"Could not import {path}")
+        module = importlib.util.module_from_spec(spec)
+        # https://github.com/python/typeshed/issues/2793
+        assert isinstance(spec.loader, Loader)
+        spec.loader.exec_module(module)
+        success, failure_message = module.run_test(
+            build_dir, self.ndk_path, self.config
+        )
+        if success:
+            return Success(self)
+        return Failure(self, failure_message)
 
 
 class ShellBuildTest(BuildTest):

@@ -21,9 +21,11 @@ from ndk.test.spec import BuildConfiguration
 from ndk.testing.builders import NdkBuildBuilder
 
 
-def run_test(ndk_path: Path, config: BuildConfiguration) -> tuple[bool, str]:
+def run_test(
+    test_dir: Path, ndk_path: Path, config: BuildConfiguration
+) -> tuple[bool, str]:
     """Checks ndk-build V=1 output for clang-tidy warnings."""
-    builder = NdkBuildBuilder.from_build_config(Path("project"), ndk_path, config)
+    builder = NdkBuildBuilder.from_build_config(test_dir / "project", ndk_path, config)
     try:
         out = builder.build()
     except CalledProcessError as ex:
