@@ -22,6 +22,8 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import List
 
+from ndk.ext.subprocess import async_run
+
 
 async def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
     """Create a compressed tarball.
@@ -95,7 +97,7 @@ async def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
 # - Tar: https://android-review.googlesource.com/c/platform/ndk/+/1967235
 
 
-def make_zip(
+async def make_zip(
     base_name: Path, root_dir: Path, paths: List[str], preserve_symlinks: bool
 ) -> Path:
     """Creates a zip package for distribution.
@@ -111,7 +113,6 @@ def make_zip(
     if not root_dir.is_dir():
         raise RuntimeError(f"Not a directory: {root_dir}")
 
-    cwd = os.getcwd()
     zip_file = base_name.with_suffix(".zip")
     if zip_file.exists():
         zip_file.unlink()
@@ -128,12 +129,8 @@ def make_zip(
         if preserve_symlinks:
             args.append("--symlinks")
     args.extend(paths)
-    os.chdir(root_dir)
-    try:
-        subprocess.check_call(args)
-        return zip_file
-    finally:
-        os.chdir(cwd)
+    await async_run(args, check=True, cwd=root_dir)
+    return zip_file
 
 
 def unzip(zip_file: Path, dest_dir: Path) -> None:
