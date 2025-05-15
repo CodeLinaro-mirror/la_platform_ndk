@@ -2301,6 +2301,7 @@ def log_build_failure(log_path: Path, dist_dir: Path) -> None:
 
 
 def launch_buildable(
+    ui: ndk.ui.BuildProgressUi,
     deps: ndk.deps.DependencyManager,
     workqueue: ndk.workqueue.AnyWorkQueue,
     log_dir: Path,
@@ -2322,21 +2323,12 @@ def launch_buildable(
             if skip_deps and module in skip_modules:
                 deps.complete(module)
                 continue
+            ui.start_build(module)
             workqueue.add_task(launch_build, module, log_dir, debuggable)
 
 
-@contextlib.contextmanager
-def build_ui_context(debuggable: bool) -> Iterator[None]:
-    if debuggable:
-        yield
-    else:
-        console = ndk.ansi.get_console()
-        with ndk.ansi.disable_terminal_echo(sys.stdin):
-            with console.cursor_hide_context():
-                yield
-
-
 def wait_for_build(
+    ui: ndk.ui.BuildProgressUi,
     deps: ndk.deps.DependencyManager,
     workqueue: ndk.workqueue.AnyWorkQueue,
     dist_dir: Path,
@@ -2345,28 +2337,20 @@ def wait_for_build(
     skip_deps: bool,
     skip_modules: Set[ndk.builds.Module],
 ) -> None:
-    console = ndk.ansi.get_console()
-    ui = ndk.ui.get_build_progress_ui(console, workqueue)
-    with build_ui_context(debuggable):
+    with ui.context():
         while not workqueue.finished():
             result, module = workqueue.get_result()
             if not result:
-                ui.clear()
-                print("Build failed: {}".format(module))
+                ui.report_failure(module)
                 log_build_failure(module.log_path(log_dir), dist_dir)
                 sys.exit(1)
-            elif not console.smart_console:
-                ui.clear()
-                print("Build succeeded: {}".format(module))
+            ui.finish_build(module)
 
             deps.complete(module)
             launch_buildable(
-                deps, workqueue, log_dir, debuggable, skip_deps, skip_modules
+                ui, deps, workqueue, log_dir, debuggable, skip_deps, skip_modules
             )
-
-            ui.draw()
-        ui.clear()
-        print("Build finished")
+        ui.finish()
 
 
 def check_ndk_symlink(ndk_dir: Path, src: Path, target: Path) -> None:
@@ -2426,10 +2410,12 @@ def build_ndk(
     else:
         workqueue = ndk.workqueue.WorkQueue(args.jobs)
     try:
+        ui = ndk.ui.get_build_progress_ui(workqueue, args.debuggable)
         launch_buildable(
-            deps, workqueue, log_dir, args.debuggable, args.skip_deps, deps_only
+            ui, deps, workqueue, log_dir, args.debuggable, args.skip_deps, deps_only
         )
         wait_for_build(
+            ui,
             deps,
             workqueue,
             dist_dir,

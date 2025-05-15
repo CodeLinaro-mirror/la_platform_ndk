@@ -22,35 +22,22 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, Tuple
 
 import ndk.ansi
+from ndk.ansi import Console
+from ndk.builds import Module
 from ndk.workqueue import AnyWorkQueue
 
 
-class UiRenderer:
-    """Renders a UI to a console."""
-
-    def __init__(self, console: ndk.ansi.Console) -> None:
-        self.console = console
-
-    def clear_last_render(self) -> None:
-        """Clears the screen of the previous render."""
-        raise NotImplementedError
-
-    def render(self, lines: List[str]) -> None:
-        """Renders the given UI, described as a list of console lines."""
-        raise NotImplementedError
-
-
-class AnsiUiRenderer(UiRenderer):
+class AnsiUiRenderer:
     """Renders a UI to an ANSI console."""
 
     # Number of seconds to delay between each draw command when debugging.
     debug_draw_delay = 0.1
 
     def __init__(self, console: ndk.ansi.Console, debug_draw: bool = False) -> None:
-        super().__init__(console)
+        self.console = console
         self.last_rendered_lines: List[str] = []
         self.debug_draw = debug_draw
 
@@ -108,46 +95,59 @@ class AnsiUiRenderer(UiRenderer):
         self.last_rendered_lines = lines
 
 
-class NonAnsiUiRenderer(UiRenderer):
-    """Renders a UI to a non-ANSI console."""
-
-    def __init__(self, console: ndk.ansi.Console, redraw_rate: int = 30) -> None:
-        super().__init__(console)
-        self.redraw_rate = redraw_rate
-        self.last_draw: Optional[float] = None
-
-    def clear_last_render(self) -> None:
-        pass
-
-    def ready_for_draw(self) -> bool:
-        """Returns True if the redraw delay has elapsed."""
-        if self.last_draw is None:
-            return True
-
-        current_time = time.time()
-        if current_time - self.last_draw >= self.redraw_rate:
-            return True
-
-        return False
-
-    def render(self, lines: List[str]) -> None:
-        if not self.ready_for_draw():
-            return
-
-        self.console.print(os.linesep.join(lines))
-        sys.stdout.flush()
-        self.last_draw = time.time()
-
-
-class Ui:
+class BuildProgressUi(ABC):
     """Console UI base class."""
 
-    def __init__(self, ui_renderer: UiRenderer) -> None:
-        self.ui_renderer = ui_renderer
+    @abstractmethod
+    @contextmanager
+    def context(self) -> Iterator[None]:
+        pass
 
-    def get_ui_lines(self) -> List[str]:
-        """Returns a list of lines describing the current UI state."""
-        raise NotImplementedError
+    @abstractmethod
+    def start_build(self, module: Module) -> None:
+        pass
+
+    @abstractmethod
+    def finish_build(self, module: Module) -> None:
+        pass
+
+    @abstractmethod
+    def report_failure(self, module: Module) -> None:
+        pass
+
+    @abstractmethod
+    def finish(self) -> None:
+        pass
+
+
+class WorkQueueBuildProgressUi(BuildProgressUi):
+    """A UI for displaying build status."""
+
+    def __init__(self, console: Console, workqueue: AnyWorkQueue) -> None:
+        self.console = console
+        self.ui_renderer = AnsiUiRenderer(console)
+        self.workqueue = workqueue
+
+    @contextmanager
+    def context(self) -> Iterator[None]:
+        with ndk.ansi.disable_terminal_echo(sys.stdin):
+            with self.console.cursor_hide_context():
+                yield
+
+    def start_build(self, module: Module) -> None:
+        self.draw()
+
+    def finish_build(self, module: Module) -> None:
+        self.draw()
+
+    def report_failure(self, module: Module) -> None:
+        self.clear()
+        print(f"Build failed: {module}")
+        self.draw()
+
+    def finish(self) -> None:
+        self.clear()
+        print("Build finished")
 
     def clear(self) -> None:
         """Clears the UI."""
@@ -156,14 +156,6 @@ class Ui:
     def draw(self) -> None:
         """Draws the UI."""
         self.ui_renderer.render(self.get_ui_lines())
-
-
-class BuildProgressUi(Ui):
-    """A UI for displaying build status."""
-
-    def __init__(self, ui_renderer: UiRenderer, workqueue: AnyWorkQueue) -> None:
-        super().__init__(ui_renderer)
-        self.workqueue = workqueue
 
     def get_ui_lines(self) -> List[str]:
         lines = []
@@ -174,30 +166,32 @@ class BuildProgressUi(Ui):
         return lines
 
 
-def get_build_progress_ui(console: ndk.ansi.Console, workqueue: AnyWorkQueue) -> Ui:
-    """Returns the appropriate build console UI for the given console."""
-    ui_renderer: UiRenderer
-    if console.smart_console:
-        ui_renderer = AnsiUiRenderer(console)
-        return BuildProgressUi(ui_renderer, workqueue)
-    ui_renderer = NonAnsiUiRenderer(console)
-    return NonAnsiBuildProgressUi(ui_renderer)
-
-
-class NonAnsiBuildProgressUi(Ui):
+class BasicBuildProgressUi(BuildProgressUi):
     """A UI for displaying build status to non-ANSI consoles."""
 
-    def get_ui_lines(self) -> List[str]:
-        return []
+    @contextmanager
+    def context(self) -> Iterator[None]:
+        yield
 
-    def clear(self) -> None:
-        pass
+    def start_build(self, module: Module) -> None:
+        print(f"Building {module}...")
 
-    def draw(self) -> None:
-        # Don't flood the terminal with repeated status of what is still
-        # building. It will be printing the same three modules for most of the
-        # build.
-        pass
+    def finish_build(self, module: Module) -> None:
+        print(f"Finished building {module}")
+
+    def report_failure(self, module: Module) -> None:
+        print(f"Build failed: {module}")
+
+    def finish(self) -> None:
+        print("Build finished")
+
+
+def get_build_progress_ui(workqueue: AnyWorkQueue, debuggable: bool) -> BuildProgressUi:
+    """Returns the appropriate build console UI for the given console."""
+    console = ndk.ansi.get_console()
+    if console.smart_console and not debuggable:
+        return WorkQueueBuildProgressUi(console, workqueue)
+    return BasicBuildProgressUi()
 
 
 class TaskProgressUi(ABC):
