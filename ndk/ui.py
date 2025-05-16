@@ -19,9 +19,12 @@ from __future__ import absolute_import, division, print_function
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 
 import ndk.ansi
 from ndk.builds import Module
+
+from .taskstatusreporter import TaskStatusReporter
 
 
 class BuildProgressUi(ABC):
@@ -97,19 +100,26 @@ class BasicTaskProgressUi(TaskProgressUi):
 
 
 try:
+    from rich.console import Group
+    from rich.live import Live
+    from rich.markup import escape
     from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
+    from rich.table import Table
 
     CAN_USE_RICH = True
 
     class RichBuildProgressUi(BuildProgressUi):
-        def __init__(self) -> None:
+        def __init__(self, task_status_reporter: TaskStatusReporter[Module]) -> None:
+            self.task_status_reporter = task_status_reporter
             self.progress = Progress()
+            self.longest_running_builds_table = Table()
+            self.live = Live(get_renderable=self._ui_elements)
             self.task_id = self.progress.add_task("Building", total=None)
             self.total_tasks = 0
 
         @contextmanager
         def context(self) -> Iterator[None]:
-            with self.progress:
+            with self.live:
                 yield
 
         def start_build(self, module: Module) -> None:
@@ -124,6 +134,33 @@ try:
 
         def finish(self) -> None:
             pass
+
+        def _ui_elements(self) -> Group:
+            table = Table(
+                "Duration",
+                "Test",
+                title="Long running tasks",
+                title_justify="left",
+                title_style="",
+                box=None,
+                show_header=False,
+                show_edge=False,
+                show_lines=False,
+            )
+            now = datetime.now()
+            for (
+                test,
+                start_time,
+            ) in self.task_status_reporter.iter_longest_running_tasks(5):
+                elapsed = now - start_time
+                if elapsed < timedelta(seconds=1):
+                    break
+                total_seconds = elapsed.total_seconds()
+                minutes = int(total_seconds // 60)
+                seconds = int(total_seconds % 60)
+                table.add_row(f"{minutes:02}:{seconds:02}", escape(str(test)))
+
+            return Group(self.progress, table)
 
     class RichTaskProgressUi(TaskProgressUi):
         def __init__(self) -> None:
@@ -151,11 +188,13 @@ except ModuleNotFoundError:
     CAN_USE_RICH = False
 
 
-def get_build_progress_ui() -> BuildProgressUi:
+def get_build_progress_ui(
+    task_status_reporter: TaskStatusReporter[Module],
+) -> BuildProgressUi:
     """Returns the appropriate build console UI for the given console."""
     console = ndk.ansi.get_console()
     if console.smart_console and CAN_USE_RICH:
-        return RichBuildProgressUi()
+        return RichBuildProgressUi(task_status_reporter)
     return BasicBuildProgressUi()
 
 

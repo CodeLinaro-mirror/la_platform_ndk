@@ -22,7 +22,6 @@ build goals, and invokes the build scripts.
 import argparse
 import asyncio
 import collections
-import contextlib
 import copy
 import inspect
 import json
@@ -35,28 +34,14 @@ import stat
 import subprocess
 import sys
 import textwrap
-import traceback
+from asyncio import Task
 from collections.abc import Sequence
 from pathlib import Path
-from typing import (
-    Any,
-    Callable,
-    ContextManager,
-    Dict,
-    Iterable,
-    Iterator,
-    List,
-    Set,
-    TextIO,
-    Tuple,
-)
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Set, Tuple
 
 import ndk.abis
-import ndk.ansi
 import ndk.archive
-import ndk.autoconf
 import ndk.builds
-import ndk.cmake
 import ndk.config
 import ndk.deps
 import ndk.ext.subprocess
@@ -67,7 +52,6 @@ import ndk.test.printers
 import ndk.test.spec
 import ndk.timer
 import ndk.ui
-import ndk.workqueue
 from ndk.abis import ALL_ABIS, Abi
 from ndk.crtobjectbuilder import CrtObjectBuilder
 from ndk.hosts import Host
@@ -75,8 +59,10 @@ from ndk.paths import ANDROID_DIR, NDK_DIR, PREBUILT_SYSROOT
 from ndk.platforms import ALL_API_LEVELS, API_LEVEL_ALIASES, MAX_API_LEVEL
 from ndk.toolchains import CLANG_VERSION, ClangToolchain
 
+from .buildtasklimiter import BuildTaskLimiter
 from .ndkversionheadergenerator import NdkVersionHeaderGenerator
 from .pythonenv import ensure_python_environment
+from .taskstatusreporter import TaskStatusReporter
 
 
 def get_version_string(build_number: int) -> str:
@@ -2077,50 +2063,16 @@ def create_notice_file(
         output_file.write(os.linesep.join(sorted(list(licenses))))
 
 
-def launch_build(
-    worker: ndk.workqueue.Worker,
+async def launch_build(
+    limiter: BuildTaskLimiter,
+    task_status_reporter: TaskStatusReporter[ndk.builds.Module],
     module: ndk.builds.Module,
-    log_dir: Path,
-    debuggable: bool,
-) -> Tuple[bool, ndk.builds.Module]:
-    result = do_build(worker, module, log_dir, debuggable)
-    if not result:
-        return result, module
-    do_install(worker, module)
-    return True, module
-
-
-@contextlib.contextmanager
-def file_logged_context(path: Path) -> Iterator[None]:
-    with path.open("w") as log_file:
-        os.dup2(log_file.fileno(), sys.stdout.fileno())
-        os.dup2(log_file.fileno(), sys.stderr.fileno())
-        yield
-
-
-def do_build(
-    worker: ndk.workqueue.Worker,
-    module: ndk.builds.Module,
-    log_dir: Path,
-    debuggable: bool,
-) -> bool:
-    if debuggable:
-        cm: ContextManager[None] = contextlib.nullcontext()
-    else:
-        cm = file_logged_context(module.log_path(log_dir))
-    with cm:
-        try:
-            worker.status = f"Building {module}..."
-            module.build()
-            return True
-        except Exception:  # pylint: disable=broad-except
-            traceback.print_exc()
-            return False
-
-
-def do_install(worker: ndk.workqueue.Worker, module: ndk.builds.Module) -> None:
-    worker.status = "Installing {}...".format(module)
-    module.install()
+) -> ndk.builds.Module:
+    async with limiter.rate_limited():
+        with task_status_reporter.task_run_context(module):
+            await asyncio.to_thread(module.build)
+            await asyncio.to_thread(module.install)
+            return module
 
 
 def _get_transitive_module_deps(
@@ -2345,25 +2297,12 @@ def parse_args(
     return parser.parse_known_args(args)
 
 
-def log_build_failure(log_path: Path, dist_dir: Path) -> None:
-    contents = log_path.read_text()
-    print(contents)
-
-    # The build server has a build_error.log file that is supposed to be
-    # the short log of the failure that stopped the build. Append our
-    # failing log to that.
-    build_error_log = dist_dir / "logs/build_error.log"
-    with build_error_log.open("a", encoding="utf-8") as error_log:
-        error_log.write("\n")
-        error_log.write(contents)
-
-
 def launch_buildable(
     ui: ndk.ui.BuildProgressUi,
     deps: ndk.deps.DependencyManager,
-    workqueue: ndk.workqueue.AnyWorkQueue,
-    log_dir: Path,
-    debuggable: bool,
+    limiter: BuildTaskLimiter,
+    task_status_reporter: TaskStatusReporter[ndk.builds.Module],
+    tasks: set[Task[ndk.builds.Module]],
     skip_deps: bool,
     skip_modules: Set[ndk.builds.Module],
 ) -> None:
@@ -2382,31 +2321,29 @@ def launch_buildable(
                 deps.complete(module)
                 continue
             ui.start_build(module)
-            workqueue.add_task(launch_build, module, log_dir, debuggable)
+            tasks.add(
+                asyncio.create_task(launch_build(limiter, task_status_reporter, module))
+            )
 
 
-def wait_for_build(
+async def wait_for_build(
     ui: ndk.ui.BuildProgressUi,
     deps: ndk.deps.DependencyManager,
-    workqueue: ndk.workqueue.AnyWorkQueue,
-    dist_dir: Path,
-    log_dir: Path,
-    debuggable: bool,
+    limiter: BuildTaskLimiter,
+    task_status_reporter: TaskStatusReporter[ndk.builds.Module],
+    tasks: set[Task[ndk.builds.Module]],
     skip_deps: bool,
     skip_modules: Set[ndk.builds.Module],
 ) -> None:
     with ui.context():
-        while not workqueue.finished():
-            result, module = workqueue.get_result()
-            if not result:
-                ui.report_failure(module)
-                log_build_failure(module.log_path(log_dir), dist_dir)
-                sys.exit(1)
-            ui.finish_build(module)
-
-            deps.complete(module)
+        while tasks:
+            done, tasks = await asyncio.wait(tasks)
+            for task in done:
+                module = task.result()
+                ui.finish_build(module)
+                deps.complete(module)
             launch_buildable(
-                ui, deps, workqueue, log_dir, debuggable, skip_deps, skip_modules
+                ui, deps, limiter, task_status_reporter, tasks, skip_deps, skip_modules
             )
         ui.finish()
 
@@ -2442,7 +2379,7 @@ def check_ndk_symlinks(ndk_dir: Path, host: Host) -> None:
         check_ndk_symlink(ndk_dir, path, path.readlink())
 
 
-def build_ndk(
+async def build_ndk(
     modules: List[ndk.builds.Module],
     deps_only: Set[ndk.builds.Module],
     out_dir: Path,
@@ -2463,51 +2400,39 @@ def build_ndk(
     ndk_dir.mkdir(parents=True, exist_ok=True)
 
     deps = ndk.deps.DependencyManager(modules)
-    if args.debuggable:
-        workqueue: ndk.workqueue.AnyWorkQueue = ndk.workqueue.BasicWorkQueue()
-    else:
-        workqueue = ndk.workqueue.WorkQueue(args.jobs)
-    try:
-        ui = ndk.ui.get_build_progress_ui()
-        launch_buildable(
-            ui, deps, workqueue, log_dir, args.debuggable, args.skip_deps, deps_only
-        )
-        wait_for_build(
-            ui,
-            deps,
-            workqueue,
-            dist_dir,
-            log_dir,
-            args.debuggable,
-            args.skip_deps,
-            deps_only,
+    task_status_reporter: TaskStatusReporter[ndk.builds.Module] = TaskStatusReporter()
+    ui = ndk.ui.get_build_progress_ui(task_status_reporter)
+    tasks: set[Task[ndk.builds.Module]] = set()
+    limiter = await BuildTaskLimiter.create()
+    launch_buildable(
+        ui, deps, limiter, task_status_reporter, tasks, args.skip_deps, deps_only
+    )
+    await wait_for_build(
+        ui, deps, limiter, task_status_reporter, tasks, args.skip_deps, deps_only
+    )
+
+    if deps.get_buildable():
+        raise RuntimeError(
+            "Builder stopped early. Modules are still "
+            "buildable: {}".format(", ".join(str(deps.get_buildable())))
         )
 
-        if deps.get_buildable():
-            raise RuntimeError(
-                "Builder stopped early. Modules are still "
-                "buildable: {}".format(", ".join(str(deps.get_buildable())))
-            )
-
-        create_notice_file(ndk_dir / "NOTICE", modules, ndk.builds.NoticeGroup.BASE)
-        create_notice_file(
-            ndk_dir / "NOTICE.toolchain", modules, ndk.builds.NoticeGroup.TOOLCHAIN
-        )
-        check_ndk_symlinks(ndk_dir, args.system)
-        return ndk_dir
-    finally:
-        workqueue.terminate()
-        workqueue.join()
+    create_notice_file(ndk_dir / "NOTICE", modules, ndk.builds.NoticeGroup.BASE)
+    create_notice_file(
+        ndk_dir / "NOTICE.toolchain", modules, ndk.builds.NoticeGroup.TOOLCHAIN
+    )
+    check_ndk_symlinks(ndk_dir, args.system)
+    return ndk_dir
 
 
-def build_ndk_for_cross_compile(out_dir: Path, args: argparse.Namespace) -> None:
+async def build_ndk_for_cross_compile(out_dir: Path, args: argparse.Namespace) -> None:
     args = copy.deepcopy(args)
     args.system = Host.current()
     if args.system != Host.Linux:
         raise NotImplementedError
     modules, deps_only = get_modules_to_build(ALL_MODULE_NAMES)
     print("Building Linux modules: {}".format(" ".join([str(m) for m in modules])))
-    build_ndk(modules, deps_only, out_dir, out_dir, args)
+    await build_ndk(modules, deps_only, out_dir, out_dir, args)
 
 
 def create_ndk_symlink(out_dir: Path) -> None:
@@ -2584,7 +2509,7 @@ async def main(argv: Sequence[str] | None = None) -> None:
     if args.system.is_windows and not args.skip_deps:
         # Since the Windows NDK is cross compiled, we need to build a Linux NDK
         # first so we can build components like libc++.
-        build_ndk_for_cross_compile(Path(out_dir), args)
+        await build_ndk_for_cross_compile(Path(out_dir), args)
 
     modules, deps_only = get_modules_to_build(module_names)
     print(
@@ -2597,7 +2522,7 @@ async def main(argv: Sequence[str] | None = None) -> None:
 
     build_timer = ndk.timer.Timer()
     with build_timer:
-        ndk_dir = build_ndk(modules, deps_only, out_dir, dist_dir, args)
+        ndk_dir = await build_ndk(modules, deps_only, out_dir, dist_dir, args)
     installed_size = get_directory_size(ndk_dir)
 
     # Create a symlink to the NDK usable by this host in the root of the out
@@ -2644,35 +2569,3 @@ async def main(argv: Sequence[str] | None = None) -> None:
     ndk.notify.toast(subject, body)
 
     sys.exit(not good)
-
-
-@contextlib.contextmanager
-def _assign_self_to_new_process_group(fd: TextIO) -> Iterator[None]:
-    # It seems the build servers run us in our own session, in which case we
-    # get EPERM from `setpgrp`. No need to call this in that case because we
-    # will already be the process group leader.
-    if os.getpid() == os.getsid(os.getpid()):
-        yield
-        return
-
-    if ndk.ansi.is_self_in_tty_foreground_group(fd):
-        old_pgrp = os.tcgetpgrp(fd.fileno())
-        os.tcsetpgrp(fd.fileno(), os.getpid())
-        os.setpgrp()
-        try:
-            yield
-        finally:
-            os.tcsetpgrp(fd.fileno(), old_pgrp)
-    else:
-        os.setpgrp()
-        yield
-
-
-# TODO: Is this used?
-def _run_main_in_new_process_group() -> None:
-    with _assign_self_to_new_process_group(sys.stdin):
-        asyncio.run(main())
-
-
-if __name__ == "__main__":
-    _run_main_in_new_process_group()
