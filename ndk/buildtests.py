@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import multiprocessing
 import shutil
 import sys
 from collections.abc import Sequence
@@ -99,6 +100,7 @@ class App:
             handlers = [RichHandler(level=log_level)]
         logging.basicConfig(level=log_level, handlers=handlers)
 
+        logging.info("Machine has %d CPUs", multiprocessing.cpu_count())
         error = await self.build_tests()
         if error is not None:
             sys.exit(error)
