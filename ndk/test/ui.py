@@ -114,7 +114,8 @@ class BasicTestBuildUi(TestBuildProgressUi):
         self.printer = printer
         self.log_all_results = log_all_results
         self.remaining = 0
-        self.last_log = datetime.now()
+        self.start_time = datetime.now()
+        self.last_log = self.start_time
         self.log_period = log_period
 
     @contextmanager
@@ -133,7 +134,7 @@ class BasicTestBuildUi(TestBuildProgressUi):
         now = datetime.now()
         if now - self.last_log >= self.log_period:
             self.last_log = now
-            print(f"{self.remaining} tests remaining")
+            print(f"{self.remaining} tests remaining after {now - self.start_time}")
 
     def on_finished(self) -> None:
         pass
