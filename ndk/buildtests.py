@@ -24,6 +24,7 @@ import ndk.paths
 from ndk.test.builder import TestBuilder
 from ndk.test.printers import StdoutPrinter
 from ndk.test.spec import TestOptions
+from ndk.timer import Timer
 
 try:
     from rich.logging import RichHandler
@@ -117,7 +118,8 @@ class App:
             # length issues on the Windows bots.
             extracted_ndk_path = self.out_dir / "ndk-zip"
             logging.info("Extracting %s to %s", self.ndk_path, extracted_ndk_path)
-            self.extract_ndk(extracted_ndk_path)
+            with Timer.log(f"Extracting {self.ndk_path}"):
+                self.extract_ndk(extracted_ndk_path)
 
         test_options = TestOptions(
             test_src_dir,
