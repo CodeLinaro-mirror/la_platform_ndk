@@ -15,13 +15,13 @@
 #
 """Build test cases."""
 
+import asyncio
 import importlib.util
 import logging
 import multiprocessing
 import os
 import shlex
 import shutil
-import subprocess
 from abc import ABC, abstractmethod
 from importlib.abc import Loader
 from pathlib import Path
@@ -29,11 +29,11 @@ from subprocess import CompletedProcess
 from typing import List, Optional
 
 import ndk.ext.os
-import ndk.ext.subprocess
 import ndk.ndkbuild
 import ndk.paths
 from ndk.abis import Abi
 from ndk.cmake import find_cmake, find_ninja
+from ndk.ext.subprocess import async_run
 from ndk.test.config import TestConfig
 from ndk.test.filters import TestFilter
 from ndk.test.result import Failure, Skipped, Success, TestResult
@@ -72,7 +72,7 @@ class Test(ABC):
     def get_test_config(self) -> TestConfig:
         return TestConfig.from_test_dir(self.test_dir)
 
-    def run(
+    async def run(
         self, obj_dir: Path, dist_dir: Path, test_filters: TestFilter
     ) -> TestResult:
         raise NotImplementedError
@@ -91,6 +91,12 @@ class Test(ABC):
 
     def __str__(self) -> str:
         return f"{self.name} [{self.config}]"
+
+    def __hash__(self) -> int:
+        return hash(id(self))
+
+    def __eq__(self, other: object) -> bool:
+        return id(self) == id(other)
 
 
 class BuildTest(Test):
@@ -125,7 +131,8 @@ class BuildTest(Test):
             return Success(self)
         return Failure(
             self,
-            f"Test build failed: {shlex.join(proc.args)}:\n{proc.stdout.decode('utf-8')}",
+            f"Test build failed: {shlex.join(proc.args)}:\n"
+            f"{proc.stdout.decode('utf-8')}",
         )
 
     def verify_no_cruft_in_dist(
@@ -144,7 +151,7 @@ class BuildTest(Test):
             )
         return None
 
-    def run(
+    async def run(
         self, obj_dir: Path, dist_dir: Path, _test_filters: TestFilter
     ) -> TestResult:
         raise NotImplementedError
@@ -206,7 +213,7 @@ class PythonBuildTest(BuildTest):
     def get_build_dir(self, out_dir: Path) -> Path:
         return out_dir / str(self.config) / "test.py" / self.name
 
-    def run(
+    async def run(
         self, obj_dir: Path, _dist_dir: Path, _test_filters: TestFilter
     ) -> TestResult:
         build_dir = self.get_build_dir(obj_dir)
@@ -220,8 +227,8 @@ class PythonBuildTest(BuildTest):
         # https://github.com/python/typeshed/issues/2793
         assert isinstance(spec.loader, Loader)
         spec.loader.exec_module(module)
-        success, failure_message = module.run_test(
-            build_dir, self.ndk_path, self.config
+        success, failure_message = await asyncio.to_thread(
+            module.run_test, build_dir, self.ndk_path, self.config
         )
         if success:
             return Success(self)
@@ -235,7 +242,7 @@ class ShellBuildTest(BuildTest):
     def get_build_dir(self, out_dir: Path) -> Path:
         return out_dir / str(self.config) / "build.sh" / self.name
 
-    def run(
+    async def run(
         self, obj_dir: Path, _dist_dir: Path, _test_filters: TestFilter
     ) -> TestResult:
         build_dir = self.get_build_dir(obj_dir)
@@ -244,7 +251,7 @@ class ShellBuildTest(BuildTest):
             reason = "build.sh tests are not supported on Windows"
             return Skipped(self, reason)
         assert self.api is not None
-        result = _run_build_sh_test(
+        result = await _run_build_sh_test(
             self,
             build_dir,
             self.test_dir,
@@ -256,7 +263,7 @@ class ShellBuildTest(BuildTest):
         return result
 
 
-def _run_build_sh_test(
+async def _run_build_sh_test(
     test: ShellBuildTest,
     build_dir: Path,
     test_dir: Path,
@@ -266,19 +273,18 @@ def _run_build_sh_test(
     platform: int,
 ) -> TestResult:
     _prep_build_dir(test_dir, build_dir)
-    with ndk.ext.os.cd(build_dir):
-        build_cmd = ["bash", "build.sh"] + _get_jobs_args() + ndk_build_flags
-        test_env = dict(os.environ)
-        test_env["NDK"] = str(ndk_path)
-        if abi is not None:
-            test_env["APP_ABI"] = abi
-        test_env["APP_PLATFORM"] = f"android-{platform}"
-        rc, out = ndk.ext.subprocess.call_output(
-            build_cmd, env=test_env, encoding="utf-8"
-        )
-        if rc == 0:
-            return Success(test)
-        return Failure(test, out)
+    build_cmd = ["bash", "build.sh"] + _get_jobs_args() + ndk_build_flags
+    test_env = dict(os.environ)
+    test_env["NDK"] = str(ndk_path)
+    if abi is not None:
+        test_env["APP_ABI"] = abi
+    test_env["APP_PLATFORM"] = f"android-{platform}"
+    proc = await async_run(
+        build_cmd, check=False, env=test_env, capture_output=True, cwd=build_dir
+    )
+    if proc.returncode == 0:
+        return Success(test)
+    return Failure(test, proc.stdout.decode("utf-8"))
 
 
 def _platform_from_application_mk(test_dir: Path) -> Optional[int]:
@@ -374,14 +380,14 @@ class NdkBuildTest(BuildTest):
     def get_build_dir(self, out_dir: Path) -> Path:
         return out_dir / str(self.config) / "ndk-build" / self.name
 
-    def run(
+    async def run(
         self, obj_dir: Path, dist_dir: Path, _test_filters: TestFilter
     ) -> TestResult:
         logger().info("Building test: %s", self.name)
         obj_dir = self.get_build_dir(obj_dir)
         dist_dir = self.get_dist_dir(obj_dir, dist_dir)
         assert self.api is not None
-        proc = _run_ndk_build_test(
+        proc = await _run_ndk_build_test(
             obj_dir,
             dist_dir,
             self.test_dir,
@@ -394,7 +400,7 @@ class NdkBuildTest(BuildTest):
         return self.make_build_result(proc)
 
 
-def _run_ndk_build_test(
+async def _run_ndk_build_test(
     obj_dir: Path,
     dist_dir: Path,
     test_dir: Path,
@@ -403,7 +409,7 @@ def _run_ndk_build_test(
     abi: Abi,
 ) -> CompletedProcess[bytes]:
     _prep_build_dir(test_dir, obj_dir)
-    return ndk.ndkbuild.build(
+    return await ndk.ndkbuild.build(
         ndk_path,
         obj_dir,
         abis=[abi],
@@ -439,14 +445,14 @@ class CMakeBuildTest(BuildTest):
     def get_build_dir(self, out_dir: Path) -> Path:
         return out_dir / str(self.config) / "cmake" / self.name
 
-    def run(
+    async def run(
         self, obj_dir: Path, dist_dir: Path, _test_filters: TestFilter
     ) -> TestResult:
         obj_dir = self.get_build_dir(obj_dir)
         dist_dir = self.get_dist_dir(obj_dir, dist_dir)
         logger().info("Building test: %s", self.name)
         assert self.api is not None
-        proc = _run_cmake_build_test(
+        proc = await _run_cmake_build_test(
             obj_dir,
             dist_dir,
             self.test_dir,
@@ -460,7 +466,7 @@ class CMakeBuildTest(BuildTest):
         return self.make_build_result(proc)
 
 
-def _run_cmake_build_test(
+async def _run_cmake_build_test(
     obj_dir: Path,
     dist_dir: Path,
     test_dir: Path,
@@ -491,17 +497,13 @@ def _run_cmake_build_test(
         args.append("-DANDROID_USE_LEGACY_TOOLCHAIN_FILE=ON")
     else:
         args.append("-DANDROID_USE_LEGACY_TOOLCHAIN_FILE=OFF")
-    proc = subprocess.run(
-        [str(cmake_bin)] + args + cmake_flags,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+    proc = await async_run(
+        [str(cmake_bin)] + args + cmake_flags, check=False, capture_output=True
     )
     if proc.returncode != 0:
         return proc
-    return subprocess.run(
+    return await async_run(
         [str(cmake_bin), "--build", str(abi_obj_dir), "--"] + _get_jobs_args(),
         check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
     )
