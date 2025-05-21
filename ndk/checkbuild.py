@@ -59,6 +59,7 @@ import ndk.builds
 import ndk.cmake
 import ndk.config
 import ndk.deps
+import ndk.ext.subprocess
 import ndk.notify
 import ndk.paths
 import ndk.test.builder
@@ -347,7 +348,6 @@ def install_file(file_name: str, src_dir: Path, dst_dir: Path) -> None:
     src_file = src_dir / file_name
     dst_file = dst_dir / file_name
 
-    print("Copying {} to {}...".format(src_file, dst_file))
     if src_file.is_dir():
         _install_dir(src_file, dst_file)
     elif src_file.is_symlink():
@@ -558,21 +558,33 @@ class Clang(ndk.builds.Module):
         # greatly improved, although handling Mac, Windows, and Linux
         # elegantly and consistently is a bit tricky.
         strip_cmd = ClangToolchain(Host.current()).strip
-        for file in ndk.paths.walk(bin_dir, directories=False):
-            if not file.is_file() or file.is_symlink():
-                continue
-            if Host.current().is_windows:
-                if file.suffix == ".exe":
-                    subprocess.check_call([str(strip_cmd), str(file)])
-            elif file.stat().st_size > 100000:
-                subprocess.check_call([str(strip_cmd), str(file)])
-        for file in ndk.paths.walk(install_clanglib, directories=False):
-            if not file.is_file() or file.is_symlink():
-                continue
-            if file.name == "lldb-server":
-                subprocess.check_call([str(strip_cmd), str(file)])
-            if file.name.startswith("libLTO.") or file.name.startswith("liblldb."):
-                subprocess.check_call([str(strip_cmd), "--strip-unneeded", str(file)])
+
+        with ndk.ext.subprocess.verbose_subprocess_errors():
+            for file in ndk.paths.walk(bin_dir, directories=False):
+                if not file.is_file() or file.is_symlink():
+                    continue
+                if Host.current().is_windows:
+                    if file.suffix == ".exe":
+                        subprocess.run(
+                            [str(strip_cmd), str(file)], check=True, capture_output=True
+                        )
+                elif file.stat().st_size > 100000:
+                    subprocess.run(
+                        [str(strip_cmd), str(file)], check=True, capture_output=True
+                    )
+            for file in ndk.paths.walk(install_clanglib, directories=False):
+                if not file.is_file() or file.is_symlink():
+                    continue
+                if file.name == "lldb-server":
+                    subprocess.run(
+                        [str(strip_cmd), str(file)], check=True, capture_output=True
+                    )
+                if file.name.startswith("libLTO.") or file.name.startswith("liblldb."):
+                    subprocess.run(
+                        [str(strip_cmd), "--strip-unneeded", str(file)],
+                        check=True,
+                        capture_output=True,
+                    )
 
         # These exist for plugin support and library use, but neither of those
         # are supported workflows for the NDK, so they're just dead weight.
@@ -855,7 +867,8 @@ class Black(ndk.builds.LintModule):
                 "Skipping format-checking. black was not found on your path."
             )
             return
-        subprocess.check_call(["black", "--check", "."])
+        with ndk.ext.subprocess.verbose_subprocess_errors():
+            subprocess.run(["black", "--check", "."], check=True, capture_output=True)
 
 
 @register
@@ -866,7 +879,8 @@ class Isort(ndk.builds.LintModule):
         if not shutil.which("isort"):
             logging.warning("Skipping isort. isort was not found on your path.")
             return
-        subprocess.check_call(["isort", "--check", "."])
+        with ndk.ext.subprocess.verbose_subprocess_errors():
+            subprocess.run(["isort", "--check", "."], check=True, capture_output=True)
 
 
 @register
@@ -885,7 +899,8 @@ class Pylint(ndk.builds.LintModule):
             "tests",
             *iter_python_lint_paths(lint=True),
         ]
-        subprocess.check_call(pylint)
+        with ndk.ext.subprocess.verbose_subprocess_errors():
+            subprocess.run(pylint, check=True, capture_output=True)
 
 
 @register
@@ -896,14 +911,18 @@ class Mypy(ndk.builds.LintModule):
         if not shutil.which("mypy"):
             logging.warning("Skipping type-checking. mypy was not found on your path.")
             return
-        subprocess.check_call(
-            [
-                "mypy",
-                "--config-file",
-                str(ANDROID_DIR / "ndk/pyproject.toml"),
-                *iter_python_lint_paths(lint=True),
-            ]
-        )
+
+        with ndk.ext.subprocess.verbose_subprocess_errors():
+            subprocess.run(
+                [
+                    "mypy",
+                    "--config-file",
+                    str(ANDROID_DIR / "ndk/pyproject.toml"),
+                    *iter_python_lint_paths(lint=True),
+                ],
+                check=True,
+                capture_output=True,
+            )
 
 
 @register
@@ -915,7 +934,10 @@ class Pytest(ndk.builds.LintModule):
         if not shutil.which("pytest"):
             logging.warning("Skipping pytest. pytest was not found on your path.")
             return
-        subprocess.check_call(["pytest", "ndk", "tests/pytest"])
+        with ndk.ext.subprocess.verbose_subprocess_errors():
+            subprocess.run(
+                ["pytest", "ndk", "tests/pytest"], check=True, capture_output=True
+            )
 
 
 @register
@@ -944,7 +966,6 @@ class Toolbox(ndk.builds.Module):
 
     def build(self) -> None:
         if not self.host.is_windows:
-            print(f"Nothing to do for {self.host}")
             return
 
         self.intermediate_out_dir.mkdir(parents=True, exist_ok=True)
@@ -955,7 +976,6 @@ class Toolbox(ndk.builds.Module):
 
     def install(self) -> None:
         if not self.host.is_windows:
-            print(f"Nothing to do for {self.host}")
             return
 
         install_dir = self.get_install_path()
@@ -1086,18 +1106,14 @@ class LibShaderc(ndk.builds.Module):
                 assert isinstance(d, str)
                 src = Path(source_dir) / d
                 dst = Path(dest_dir) / d
-                print(src, " -> ", dst)
                 shutil.copytree(src, dst, ignore=default_ignore_patterns)
             for f in properties["files"]:
-                print(source_dir, ":", dest_dir, ":", f)
                 # Only copy if the source file exists.  That way
                 # we can update this script in anticipation of
                 # source files yet-to-come.
                 assert isinstance(f, str)
                 if (Path(source_dir) / f).exists():
                     install_file(f, Path(source_dir), Path(dest_dir))
-                else:
-                    print(source_dir, ":", dest_dir, ":", f, "SKIPPED")
 
 
 @register
@@ -1686,7 +1702,6 @@ class SimplePerf(ndk.builds.Module):
         pass
 
     def install(self) -> None:
-        print("Installing simpleperf...")
         install_dir = self.get_install_path()
         if install_dir.exists():
             shutil.rmtree(install_dir)
@@ -2301,6 +2316,7 @@ def log_build_failure(log_path: Path, dist_dir: Path) -> None:
 
 
 def launch_buildable(
+    ui: ndk.ui.BuildProgressUi,
     deps: ndk.deps.DependencyManager,
     workqueue: ndk.workqueue.AnyWorkQueue,
     log_dir: Path,
@@ -2322,21 +2338,12 @@ def launch_buildable(
             if skip_deps and module in skip_modules:
                 deps.complete(module)
                 continue
+            ui.start_build(module)
             workqueue.add_task(launch_build, module, log_dir, debuggable)
 
 
-@contextlib.contextmanager
-def build_ui_context(debuggable: bool) -> Iterator[None]:
-    if debuggable:
-        yield
-    else:
-        console = ndk.ansi.get_console()
-        with ndk.ansi.disable_terminal_echo(sys.stdin):
-            with console.cursor_hide_context():
-                yield
-
-
 def wait_for_build(
+    ui: ndk.ui.BuildProgressUi,
     deps: ndk.deps.DependencyManager,
     workqueue: ndk.workqueue.AnyWorkQueue,
     dist_dir: Path,
@@ -2345,28 +2352,20 @@ def wait_for_build(
     skip_deps: bool,
     skip_modules: Set[ndk.builds.Module],
 ) -> None:
-    console = ndk.ansi.get_console()
-    ui = ndk.ui.get_build_progress_ui(console, workqueue)
-    with build_ui_context(debuggable):
+    with ui.context():
         while not workqueue.finished():
             result, module = workqueue.get_result()
             if not result:
-                ui.clear()
-                print("Build failed: {}".format(module))
+                ui.report_failure(module)
                 log_build_failure(module.log_path(log_dir), dist_dir)
                 sys.exit(1)
-            elif not console.smart_console:
-                ui.clear()
-                print("Build succeeded: {}".format(module))
+            ui.finish_build(module)
 
             deps.complete(module)
             launch_buildable(
-                deps, workqueue, log_dir, debuggable, skip_deps, skip_modules
+                ui, deps, workqueue, log_dir, debuggable, skip_deps, skip_modules
             )
-
-            ui.draw()
-        ui.clear()
-        print("Build finished")
+        ui.finish()
 
 
 def check_ndk_symlink(ndk_dir: Path, src: Path, target: Path) -> None:
@@ -2426,10 +2425,12 @@ def build_ndk(
     else:
         workqueue = ndk.workqueue.WorkQueue(args.jobs)
     try:
+        ui = ndk.ui.get_build_progress_ui()
         launch_buildable(
-            deps, workqueue, log_dir, args.debuggable, args.skip_deps, deps_only
+            ui, deps, workqueue, log_dir, args.debuggable, args.skip_deps, deps_only
         )
         wait_for_build(
+            ui,
             deps,
             workqueue,
             dist_dir,

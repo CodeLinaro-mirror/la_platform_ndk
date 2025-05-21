@@ -6,11 +6,12 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 import ndk.ansi
+from ndk.taskstatusreporter import TaskStatusReporter
 from ndk.test.printers import Printer
 from ndk.test.result import TestResult
 from ndk.test.richtextcolorer import rich_text_colorer
 
-from .teststatusreporter import TestStatusReporter
+from .buildtest.case import Test
 
 
 class TestBuildProgressUi(ABC):
@@ -43,7 +44,7 @@ try:
 
     class RichTestBuildUi(TestBuildProgressUi):
         def __init__(
-            self, test_status_reporter: TestStatusReporter, log_all_results: bool
+            self, test_status_reporter: TaskStatusReporter[Test], log_all_results: bool
         ) -> None:
             self.test_status_reporter = test_status_reporter
             self.log_all_results = log_all_results
@@ -88,7 +89,7 @@ try:
             for (
                 test,
                 start_time,
-            ) in self.test_status_reporter.iter_longest_running_tests(5):
+            ) in self.test_status_reporter.iter_longest_running_tasks(5):
                 elapsed = now - start_time
                 if elapsed < timedelta(seconds=1):
                     break
@@ -140,7 +141,7 @@ class BasicTestBuildUi(TestBuildProgressUi):
 
 def get_test_build_ui(
     printer: Printer,
-    build_status_reporter: TestStatusReporter,
+    build_status_reporter: TaskStatusReporter[Test],
     log_all_results: bool,
 ) -> TestBuildProgressUi:
     console = ndk.ansi.get_console()
