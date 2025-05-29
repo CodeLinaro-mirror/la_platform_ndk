@@ -107,10 +107,12 @@ except ModuleNotFoundError:
 class BasicTestBuildUi(TestBuildProgressUi):
     def __init__(
         self,
+        test_status_reporter: TaskStatusReporter[Test],
         printer: Printer,
         log_all_results: bool,
         log_period: timedelta = timedelta(seconds=5),
     ) -> None:
+        self.test_status_reporter = test_status_reporter
         self.printer = printer
         self.log_all_results = log_all_results
         self.remaining = 0
@@ -136,6 +138,20 @@ class BasicTestBuildUi(TestBuildProgressUi):
             self.last_log = now
             print(f"{self.remaining} tests remaining after {now - self.start_time}")
 
+            limit = timedelta(minutes=1)
+            print(f"Test builds still running after {limit}:")
+            for (
+                test,
+                start_time,
+            ) in self.test_status_reporter.iter_longest_running_tasks():
+                elapsed = now - start_time
+                if elapsed < limit:
+                    break
+                total_seconds = elapsed.total_seconds()
+                minutes = int(total_seconds // 60)
+                seconds = int(total_seconds % 60)
+                print(f"\t{minutes:02}:{seconds:02}\t{test}")
+
     def on_finished(self) -> None:
         pass
 
@@ -148,4 +164,4 @@ def get_test_build_ui(
     console = ndk.ansi.get_console()
     if console.smart_console:
         return RichTestBuildUi(build_status_reporter, log_all_results)
-    return BasicTestBuildUi(printer, log_all_results)
+    return BasicTestBuildUi(build_status_reporter, printer, log_all_results)
