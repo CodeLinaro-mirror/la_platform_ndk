@@ -210,7 +210,13 @@ class TestBuilder:
         self.make_out_dirs()
 
         test_filters = TestFilter.from_string(self.test_options.test_filter)
-        result = await self.do_build(test_filters)
+        # The build server will enforce a 6 hour timeout. The test build in CI typically
+        # takes about 20 minutes. For some reason things are timing out in CI right now,
+        # but the 6 hour timeout means it takes 6 hours to get feedback once the
+        # change has been submitted. Shorten that so I can maybe try more than
+        # one thing per day.
+        async with asyncio.timeout(30 * 60):
+            result = await self.do_build(test_filters)
         if self.test_options.build_report:
             write_build_report(self.test_options.build_report, result)
         if result.successful and self.test_options.package_path is not None:
