@@ -138,19 +138,15 @@ class BasicTestBuildUi(TestBuildProgressUi):
             self.last_log = now
             print(f"{self.remaining} tests remaining after {now - self.start_time}")
 
-            limit = timedelta(minutes=1)
-            print(f"Test builds still running after {limit}:")
-            for (
-                test,
-                start_time,
-            ) in self.test_status_reporter.iter_longest_running_tasks():
-                elapsed = now - start_time
-                if elapsed < limit:
-                    break
-                total_seconds = elapsed.total_seconds()
-                minutes = int(total_seconds // 60)
-                seconds = int(total_seconds % 60)
-                print(f"\t{minutes:02}:{seconds:02}\t{test}")
+            running_tasks = list(self.test_status_reporter.iter_longest_running_tasks())
+            if running_tasks:
+                print(f"{len(running_tasks)} currently running:")
+                for test, start_time in running_tasks:
+                    elapsed = now - start_time
+                    total_seconds = elapsed.total_seconds()
+                    minutes = int(total_seconds // 60)
+                    seconds = int(total_seconds % 60)
+                    print(f"\t{minutes:02}:{seconds:02}\t{test}")
 
     def on_finished(self) -> None:
         pass
