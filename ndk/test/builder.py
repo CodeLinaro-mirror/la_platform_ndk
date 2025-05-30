@@ -266,11 +266,19 @@ class TestBuilder:
         tasks: list[Task[RunTestResult]],
         ui: TestBuildProgressUi,
     ) -> None:
+        # This uses asyncio.wait() rather than asyncio.as_completed() so we can
+        # force a UI update periodically rather than having to wait for the next
+        # task to complete.
+        pending = set(tasks)
         with ui.ui_context():
-            for task in asyncio.as_completed(tasks):
-                suite, result = await task
-                ui.on_task_finished(result)
-                report.add_result(suite, result)
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, timeout=60, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in done:
+                    suite, result = await task
+                    ui.on_task_finished(result)
+                    report.add_result(suite, result)
             ui.on_finished()
 
     async def package(self) -> None:
