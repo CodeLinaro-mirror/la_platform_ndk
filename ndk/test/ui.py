@@ -158,6 +158,6 @@ def get_test_build_ui(
     log_all_results: bool,
 ) -> TestBuildProgressUi:
     console = ndk.ansi.get_console()
-    if console.smart_console:
+    if console.smart_console and CAN_USE_RICH:
         return RichTestBuildUi(build_status_reporter, log_all_results)
     return BasicTestBuildUi(build_status_reporter, printer, log_all_results)
