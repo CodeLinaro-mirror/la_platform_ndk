@@ -18,6 +18,9 @@ directly, see the [build system maintainers guide].
 
 - Updated LLVM to clang-r547379. See `clang_source_info.md` in the toolchain
   directory for version information.
+  - [Issue 2142]: Fixed crash with `icf=safe` due to duplicate GOT entries.
+  - [Issue 2144]: Fixed issue where `lldb.sh` did not work when installed to a
+    path which contained spaces.
 - ndk-stack will now find symbols in files with matching build IDs even if the
   file names do not match.
 - ndk-stack will now find symbols in files with matching build IDs even if the
@@ -33,5 +36,7 @@ directly, see the [build system maintainers guide].
 [Issue 2078]: https://github.com/android/ndk/issues/2078
 [Issue 2109]: https://github.com/android/ndk/issues/2109
 [Issue 2135]: https://github.com/android/ndk/issues/2135
+[Issue 2142]: https://github.com/android/ndk/issues/2142
+[Issue 2144]: https://github.com/android/ndk/issues/2144
 [Issue 2146]: https://github.com/android/ndk/issues/2146
 [native-debug-symbols.zip]: https://support.google.com/googleplay/android-developer/answer/9848633?hl=en
