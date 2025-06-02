@@ -1,6 +1,7 @@
 # Copyright (C) 2025 The Android Open Source Project
 # SPDX-License-Identifier: Apache-2.0
 import asyncio
+import logging
 from pathlib import Path
 
 from ndk.buildtests import App
@@ -26,5 +27,6 @@ class TestBuildAction(Action):
                 dist_dir=get_dist_dir(),
                 clean=False,
                 package=True,
+                log_level=logging.DEBUG,
             ).run()
         )

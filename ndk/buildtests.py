@@ -43,12 +43,14 @@ class App:
         dist_dir: Path,
         clean: bool,
         package: bool,
+        log_level: int = logging.INFO,
     ) -> None:
         self.ndk_path = ndk_path
         self.out_dir = out_dir
         self.dist_dir = dist_dir
         self.clean = clean
         self.package = package
+        self.log_level = log_level
 
     @staticmethod
     def main(argv: Sequence[str] | None = None) -> None:
@@ -95,11 +97,10 @@ class App:
         return App(args.ndk, args.out_dir, args.dist_dir, args.clean, args.package)
 
     async def run(self) -> None:
-        log_level = logging.INFO
         handlers = None
         if CAN_USE_RICH:
-            handlers = [RichHandler(level=log_level)]
-        logging.basicConfig(level=log_level, handlers=handlers)
+            handlers = [RichHandler(level=self.log_level)]
+        logging.basicConfig(level=self.log_level, handlers=handlers)
 
         logging.info("Machine has %d CPUs", multiprocessing.cpu_count())
         error = await self.build_tests()
