@@ -330,7 +330,7 @@ async def build_ndk_tests(
     test_spec = ndk.test.spec.TestSpec.load(ndk.paths.ndk_path("qa_config.json"))
     builder = ndk.test.builder.TestBuilder(test_spec, test_options, printer)
 
-    report = await builder.build()
+    report = await asyncio.to_thread(builder.build)
     printer.print_summary(report)
 
     if not report.successful:

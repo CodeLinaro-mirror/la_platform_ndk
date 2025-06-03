@@ -29,13 +29,13 @@ from typing import Dict, List, Tuple
 
 import ndk.archive
 import ndk.test.spec
-from ndk.buildtasklimiter import BuildTaskLimiter
 from ndk.taskstatusreporter import TaskStatusReporter
 from ndk.test.buildtest.case import Test
 from ndk.test.buildtest.scanner import TestScanner
 from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.report import Report
+from ndk.workqueue import Worker, WorkQueue
 
 from .ui import TestBuildProgressUi, get_test_build_ui
 
@@ -85,8 +85,8 @@ def _fixup_negative_test(
 RunTestResult = tuple[str, ndk.test.result.TestResult]
 
 
-async def _run_test(
-    limiter: BuildTaskLimiter,
+def _run_test(
+    worker: Worker,
     suite: str,
     test: Test,
     obj_dir: Path,
@@ -112,9 +112,8 @@ async def _run_test(
         return suite, ndk.test.result.Skipped(test, message)
 
     try:
-        async with limiter.rate_limited():
-            with build_status_reporter.task_run_context(test):
-                result = await test.run(obj_dir, dist_dir, test_filters)
+        with build_status_reporter.task_run_context(test):
+            result = test.run(obj_dir, dist_dir, test_filters)
         if test.is_negative_test():
             result = _fixup_negative_test(result)
         config, bug = test.check_broken()
@@ -204,88 +203,73 @@ class TestBuilder:
         if self.test_options.out_dir.exists():
             shutil.rmtree(self.test_options.out_dir)
 
-    async def build(self) -> Report[None]:
+    def build(self) -> Report[None]:
         if self.test_options.clean:
             self.clean_out_dir()
         self.make_out_dirs()
 
         test_filters = TestFilter.from_string(self.test_options.test_filter)
-        # The build server will enforce a 6 hour timeout. The test build in CI typically
-        # takes about 20 minutes. For some reason things are timing out in CI right now,
-        # but the 6 hour timeout means it takes 6 hours to get feedback once the
-        # change has been submitted. Shorten that so I can maybe try more than
-        # one thing per day.
-        async with asyncio.timeout(30 * 60):
-            result = await self.do_build(test_filters)
+        result = self.do_build(test_filters)
         if self.test_options.build_report:
             write_build_report(self.test_options.build_report, result)
         if result.successful and self.test_options.package_path is not None:
-            await self.package()
+            self.package()
         return result
 
-    async def do_build(self, test_filters: TestFilter) -> Report[None]:
+    def do_build(self, test_filters: TestFilter) -> Report[None]:
         build_status_reporter: TaskStatusReporter[Test] = TaskStatusReporter()
         ui = get_test_build_ui(
             self.printer,
             build_status_reporter,
             logger().isEnabledFor(logging.INFO),
         )
-        limiter = await BuildTaskLimiter.create()
-        tasks = []
-        for suite, tests in self.tests.items():
-            # Each test configuration was expanded when each test was
-            # discovered, so the current order has all the largest tests
-            # right next to each other. Spread them out to try to avoid
-            # having too many heavy builds happening simultaneously.
-            random.shuffle(tests)
-            for test in tests:
-                if not test_filters.filter(test.name):
-                    continue
-                ui.on_task_scheduled()
-                tasks.append(
-                    asyncio.create_task(
-                        _run_test(
-                            limiter,
-                            suite,
-                            test,
-                            self.obj_dir,
-                            self.dist_dir,
-                            test_filters,
-                            build_status_reporter,
-                        )
+        workqueue = WorkQueue()
+        try:
+            for suite, tests in self.tests.items():
+                # Each test configuration was expanded when each test was
+                # discovered, so the current order has all the largest tests
+                # right next to each other. Spread them out to try to avoid
+                # having too many heavy builds happening simultaneously.
+                random.shuffle(tests)
+                for test in tests:
+                    if not test_filters.filter(test.name):
+                        continue
+                    ui.on_task_scheduled()
+                    workqueue.add_task(
+                        _run_test,
+                        suite,
+                        test,
+                        self.obj_dir,
+                        self.dist_dir,
+                        test_filters,
+                        build_status_reporter,
                     )
-                )
 
-        report = Report[None]()
-        await self.wait_for_results(report, tasks, ui)
+            report = Report[None]()
+            self.wait_for_results(report, workqueue, ui)
+        finally:
+            workqueue.terminate()
+            workqueue.join()
         return report
 
-    async def wait_for_results(
+    def wait_for_results(
         self,
         report: Report[None],
-        tasks: list[Task[RunTestResult]],
+        workqueue: WorkQueue,
         ui: TestBuildProgressUi,
     ) -> None:
-        # This uses asyncio.wait() rather than asyncio.as_completed() so we can
-        # force a UI update periodically rather than having to wait for the next
-        # task to complete.
-        pending = set(tasks)
         with ui.ui_context():
-            while pending:
-                done, pending = await asyncio.wait(
-                    pending, timeout=60, return_when=asyncio.FIRST_COMPLETED
-                )
-                for task in done:
-                    suite, result = await task
-                    ui.on_task_finished(result)
-                    report.add_result(suite, result)
+            while not workqueue.finished():
+                suite, result = workqueue.get_result()
+                ui.on_task_finished(result)
+                report.add_result(suite, result)
             ui.on_finished()
 
-    async def package(self) -> None:
+    def package(self) -> None:
         assert self.test_options.package_path is not None
         print("Packaging tests...")
 
-        await ndk.archive.make_bztar(
+        ndk.archive.make_bztar_sync(
             self.test_options.package_path,
             self.test_options.out_dir.parent,
             Path("tests/dist"),

@@ -12,7 +12,6 @@ about how it imports package from PyPI, which aren't available in CI.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import logging
 import multiprocessing
 import shutil
@@ -54,7 +53,7 @@ class App:
 
     @staticmethod
     def main(argv: Sequence[str] | None = None) -> None:
-        asyncio.run(App.from_args(argv).run())
+        App.from_args(argv).run()
 
     @staticmethod
     def from_args(argv: Sequence[str] | None = None) -> App:
@@ -93,21 +92,33 @@ class App:
             help="Directory to store packaged tests. Defaults to $DIST_DIR or ../out/dist",
         )
 
-        args = parser.parse_args(argv)
-        return App(args.ndk, args.out_dir, args.dist_dir, args.clean, args.package)
+        parser.add_argument(
+            "-v",
+            "--verbose",
+            action="count",
+            dest="verbosity",
+            default=0,
+            help="Increase logging verbosity.",
+        )
 
-    async def run(self) -> None:
+        args = parser.parse_args(argv)
+        log_level = logging.DEBUG if args.verbosity else logging.INFO
+        return App(
+            args.ndk, args.out_dir, args.dist_dir, args.clean, args.package, log_level
+        )
+
+    def run(self) -> None:
         handlers = None
         if CAN_USE_RICH:
             handlers = [RichHandler(level=self.log_level)]
         logging.basicConfig(level=self.log_level, handlers=handlers)
 
         logging.info("Machine has %d CPUs", multiprocessing.cpu_count())
-        error = await self.build_tests()
+        error = self.build_tests()
         if error is not None:
             sys.exit(error)
 
-    async def build_tests(self) -> str | None:
+    def build_tests(self) -> str | None:
         test_src_dir = ndk.paths.ndk_path("tests")
         test_out_dir = self.out_dir / "tests"
 
@@ -137,7 +148,7 @@ class App:
         test_spec = ndk.test.spec.TestSpec.load(ndk.paths.ndk_path("qa_config.json"))
         builder = TestBuilder(test_spec, test_options, printer)
 
-        report = await builder.build()
+        report = builder.build()
         printer.print_summary(report)
 
         if not report.num_tests:

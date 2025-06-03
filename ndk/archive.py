@@ -32,6 +32,23 @@ def _tar_cmd() -> str:
     return "tar"
 
 
+def _make_bztar_cmd(base_name: Path, root_dir: Path, base_dir: Path) -> list[str]:
+    if not root_dir.is_dir():
+        raise RuntimeError(f"Not a directory: {root_dir}")
+    if not (root_dir / base_dir).is_dir():
+        raise RuntimeError(f"Not a directory: {root_dir}/{base_dir}")
+
+    return [
+        _tar_cmd(),
+        ("-j" if shutil.which("pbzip2") is None else "--use-compress-prog=pbzip2"),
+        "-cf",
+        str(base_name.with_suffix(".tar.bz2")),
+        "-C",
+        str(root_dir),
+        str(base_dir),
+    ]
+
+
 async def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
     """Create a compressed tarball.
 
@@ -42,24 +59,23 @@ async def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
         root_dir: Directory that's the root of the archive.
         base_dir: Directory relative to root_dir to archive.
     """
-    if not root_dir.is_dir():
-        raise RuntimeError(f"Not a directory: {root_dir}")
-    if not (root_dir / base_dir).is_dir():
-        raise RuntimeError(f"Not a directory: {root_dir}/{base_dir}")
-
-    cmd = [
-        _tar_cmd(),
-        ("-j" if shutil.which("pbzip2") is None else "--use-compress-prog=pbzip2"),
-        "-cf",
-        str(base_name.with_suffix(".tar.bz2")),
-        "-C",
-        str(root_dir),
-        str(base_dir),
-    ]
-
+    cmd = _make_bztar_cmd(base_name, root_dir, base_dir)
     proc = await asyncio.create_subprocess_exec(*cmd)
     if status := await proc.wait():
         raise CalledProcessError(status, cmd)
+
+
+def make_bztar_sync(base_name: Path, root_dir: Path, base_dir: Path) -> None:
+    """Create a compressed tarball.
+
+    Arguments have the same name and meaning as shutil.make_archive.
+
+    Args:
+        base_name: Base name of archive to create. ".tar.bz2" will be appended.
+        root_dir: Directory that's the root of the archive.
+        base_dir: Directory relative to root_dir to archive.
+    """
+    subprocess.run(_make_bztar_cmd(base_name, root_dir, base_dir), check=True)
 
 
 # For (un)zipping archives on Unix-like systems, the "zip" and "unzip" commands
