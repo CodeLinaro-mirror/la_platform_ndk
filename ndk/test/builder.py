@@ -16,14 +16,12 @@
 """APIs for enumerating and building NDK tests."""
 from __future__ import absolute_import
 
-import asyncio
 import logging
 import os
 import pickle
 import random
 import shutil
 import traceback
-from asyncio import Task
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -86,7 +84,7 @@ RunTestResult = tuple[str, ndk.test.result.TestResult]
 
 
 def _run_test(
-    worker: Worker,
+    _worker: Worker,
     suite: str,
     test: Test,
     obj_dir: Path,
