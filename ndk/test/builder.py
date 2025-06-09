@@ -21,21 +21,20 @@ import os
 import pickle
 import random
 import shutil
+import sys
 import traceback
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import ndk.archive
 import ndk.test.spec
-from ndk.taskstatusreporter import TaskStatusReporter
+import ndk.ui
 from ndk.test.buildtest.case import Test
 from ndk.test.buildtest.scanner import TestScanner
 from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.report import Report
-from ndk.workqueue import Worker, WorkQueue
-
-from .ui import TestBuildProgressUi, get_test_build_ui
+from ndk.workqueue import AnyWorkQueue, Worker, WorkQueue
 
 
 def logger() -> logging.Logger:
@@ -80,21 +79,21 @@ def _fixup_negative_test(
     return result
 
 
-RunTestResult = tuple[str, ndk.test.result.TestResult]
+RunTestResult = tuple[str, ndk.test.result.TestResult, list[Test]]
 
 
 def _run_test(
-    _worker: Worker,
+    worker: Worker,
     suite: str,
     test: Test,
     obj_dir: Path,
     dist_dir: Path,
     test_filters: TestFilter,
-    build_status_reporter: TaskStatusReporter[Test],
 ) -> RunTestResult:
     """Runs a given test according to the given filters.
 
     Args:
+        worker: The worker that invoked this task.
         suite: Name of the test suite the test belongs to.
         test: The test to be run.
         obj_dir: Out directory for intermediate build artifacts.
@@ -104,14 +103,15 @@ def _run_test(
     Returns: Tuple of (suite, TestResult, [Test]). The [Test] element is a list
              of additional tests to be run.
     """
+    worker.status = "Building {}".format(test)
+
     config = test.check_unsupported()
     if config is not None:
         message = "test unsupported for {}".format(config)
-        return suite, ndk.test.result.Skipped(test, message)
+        return suite, ndk.test.result.Skipped(test, message), []
 
     try:
-        with build_status_reporter.task_run_context(test):
-            result = test.run(obj_dir, dist_dir, test_filters)
+        result, additional_tests = test.run(obj_dir, dist_dir, test_filters)
         if test.is_negative_test():
             result = _fixup_negative_test(result)
         config, bug = test.check_broken()
@@ -122,7 +122,8 @@ def _run_test(
             result = _fixup_expected_failure(result, config, bug)
     except Exception:  # pylint: disable=broad-except
         result = ndk.test.result.Failure(test, traceback.format_exc())
-    return suite, result
+        additional_tests = []
+    return suite, result, additional_tests
 
 
 class TestBuilder:
@@ -215,12 +216,6 @@ class TestBuilder:
         return result
 
     def do_build(self, test_filters: TestFilter) -> Report[None]:
-        build_status_reporter: TaskStatusReporter[Test] = TaskStatusReporter()
-        ui = get_test_build_ui(
-            self.printer,
-            build_status_reporter,
-            logger().isEnabledFor(logging.INFO),
-        )
         workqueue = WorkQueue()
         try:
             for suite, tests in self.tests.items():
@@ -232,7 +227,6 @@ class TestBuilder:
                 for test in tests:
                     if not test_filters.filter(test.name):
                         continue
-                    ui.on_task_scheduled()
                     workqueue.add_task(
                         _run_test,
                         suite,
@@ -240,34 +234,53 @@ class TestBuilder:
                         self.obj_dir,
                         self.dist_dir,
                         test_filters,
-                        build_status_reporter,
                     )
 
             report = Report[None]()
-            self.wait_for_results(report, workqueue, ui)
+            self.wait_for_results(report, workqueue, test_filters)
+
+            return report
         finally:
             workqueue.terminate()
             workqueue.join()
-        return report
 
     def wait_for_results(
         self,
         report: Report[None],
-        workqueue: WorkQueue,
-        ui: TestBuildProgressUi,
+        workqueue: AnyWorkQueue,
+        test_filters: TestFilter,
     ) -> None:
-        with ui.ui_context():
-            while not workqueue.finished():
-                suite, result = workqueue.get_result()
-                ui.on_task_finished(result)
-                report.add_result(suite, result)
-            ui.on_finished()
+        console = ndk.ansi.get_console()
+        ui = ndk.ui.get_work_queue_ui(console, workqueue)
+        with ndk.ansi.disable_terminal_echo(sys.stdin):
+            with console.cursor_hide_context():
+                while not workqueue.finished():
+                    for suite, result, additional_tests in workqueue.get_results():
+                        assert result.passed() or not additional_tests
+                        for test in additional_tests:
+                            workqueue.add_task(
+                                _run_test,
+                                suite,
+                                test,
+                                self.obj_dir,
+                                self.dist_dir,
+                                test_filters,
+                            )
+                        if logger().isEnabledFor(logging.INFO):
+                            ui.clear()
+                            self.printer.print_result(result)
+                        elif result.failed():
+                            ui.clear()
+                            self.printer.print_result(result)
+                        report.add_result(suite, result)
+                    ui.draw()
+                ui.clear()
 
     def package(self) -> None:
         assert self.test_options.package_path is not None
         print("Packaging tests...")
 
-        ndk.archive.make_bztar_sync(
+        ndk.archive.make_bztar(
             self.test_options.package_path,
             self.test_options.out_dir.parent,
             Path("tests/dist"),

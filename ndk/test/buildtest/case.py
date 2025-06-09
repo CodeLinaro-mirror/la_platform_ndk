@@ -26,14 +26,16 @@ from abc import ABC, abstractmethod
 from importlib.abc import Loader
 from pathlib import Path
 from subprocess import CompletedProcess
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+import ndk.ansi
 import ndk.ext.os
+import ndk.ext.subprocess
+import ndk.hosts
 import ndk.ndkbuild
 import ndk.paths
 from ndk.abis import Abi
 from ndk.cmake import find_cmake, find_ninja
-from ndk.ext.subprocess import async_run
 from ndk.test.config import TestConfig
 from ndk.test.filters import TestFilter
 from ndk.test.result import Failure, Skipped, Success, TestResult
@@ -74,7 +76,7 @@ class Test(ABC):
 
     def run(
         self, obj_dir: Path, dist_dir: Path, test_filters: TestFilter
-    ) -> TestResult:
+    ) -> Tuple[TestResult, List["Test"]]:
         raise NotImplementedError
 
     def is_negative_test(self) -> bool:
@@ -91,12 +93,6 @@ class Test(ABC):
 
     def __str__(self) -> str:
         return f"{self.name} [{self.config}]"
-
-    def __hash__(self) -> int:
-        return hash(id(self))
-
-    def __eq__(self, other: object) -> bool:
-        return id(self) == id(other)
 
 
 class BuildTest(Test):
@@ -126,13 +122,11 @@ class BuildTest(Test):
         flags = self.config.get_extra_cmake_flags()
         return flags + self.get_extra_cmake_flags()
 
-    def make_build_result(self, proc: CompletedProcess[bytes]) -> TestResult:
+    def make_build_result(self, proc: CompletedProcess[str]) -> TestResult:
         if proc.returncode == 0:
             return Success(self)
         return Failure(
-            self,
-            f"Test build failed: {shlex.join(proc.args)}:\n"
-            f"{proc.stdout.decode('utf-8')}",
+            self, f"Test build failed: {shlex.join(proc.args)}:\n{proc.stdout}"
         )
 
     def verify_no_cruft_in_dist(
@@ -153,7 +147,7 @@ class BuildTest(Test):
 
     def run(
         self, obj_dir: Path, dist_dir: Path, _test_filters: TestFilter
-    ) -> TestResult:
+    ) -> Tuple[TestResult, List[Test]]:
         raise NotImplementedError
 
     def check_broken(self) -> tuple[None, None] | tuple[str, str]:
@@ -215,24 +209,23 @@ class PythonBuildTest(BuildTest):
 
     def run(
         self, obj_dir: Path, _dist_dir: Path, _test_filters: TestFilter
-    ) -> TestResult:
+    ) -> Tuple[TestResult, List[Test]]:
         build_dir = self.get_build_dir(obj_dir)
         logger().info("Building test: %s", self.name)
         _prep_build_dir(self.test_dir, build_dir)
-        spec = importlib.util.spec_from_file_location("test", build_dir / "test.py")
-        if spec is None or spec.loader is None:
-            path = build_dir / "test.py"
-            raise RuntimeError(f"Could not import {path}")
-        module = importlib.util.module_from_spec(spec)
-        # https://github.com/python/typeshed/issues/2793
-        assert isinstance(spec.loader, Loader)
-        spec.loader.exec_module(module)
-        success, failure_message = module.run_test(
-            build_dir, self.ndk_path, self.config
-        )
-        if success:
-            return Success(self)
-        return Failure(self, failure_message)
+        with ndk.ext.os.cd(build_dir):
+            spec = importlib.util.spec_from_file_location("test", "test.py")
+            if spec is None or spec.loader is None:
+                path = build_dir / "test.py"
+                raise RuntimeError(f"Could not import {path}")
+            module = importlib.util.module_from_spec(spec)
+            # https://github.com/python/typeshed/issues/2793
+            assert isinstance(spec.loader, Loader)
+            spec.loader.exec_module(module)
+            success, failure_message = module.run_test(self.ndk_path, self.config)
+            if success:
+                return Success(self), []
+            return Failure(self, failure_message), []
 
 
 class ShellBuildTest(BuildTest):
@@ -244,12 +237,12 @@ class ShellBuildTest(BuildTest):
 
     def run(
         self, obj_dir: Path, _dist_dir: Path, _test_filters: TestFilter
-    ) -> TestResult:
+    ) -> Tuple[TestResult, List[Test]]:
         build_dir = self.get_build_dir(obj_dir)
         logger().info("Building test: %s", self.name)
         if os.name == "nt":
             reason = "build.sh tests are not supported on Windows"
-            return Skipped(self, reason)
+            return Skipped(self, reason), []
         assert self.api is not None
         result = _run_build_sh_test(
             self,
@@ -260,7 +253,7 @@ class ShellBuildTest(BuildTest):
             self.abi,
             self.api,
         )
-        return result
+        return result, []
 
 
 def _run_build_sh_test(
@@ -273,18 +266,19 @@ def _run_build_sh_test(
     platform: int,
 ) -> TestResult:
     _prep_build_dir(test_dir, build_dir)
-    build_cmd = ["bash", "build.sh"] + _get_jobs_args() + ndk_build_flags
-    test_env = dict(os.environ)
-    test_env["NDK"] = str(ndk_path)
-    if abi is not None:
-        test_env["APP_ABI"] = abi
-    test_env["APP_PLATFORM"] = f"android-{platform}"
-    proc = subprocess.run(
-        build_cmd, check=False, env=test_env, capture_output=True, cwd=build_dir
-    )
-    if proc.returncode == 0:
-        return Success(test)
-    return Failure(test, proc.stdout.decode("utf-8"))
+    with ndk.ext.os.cd(build_dir):
+        build_cmd = ["bash", "build.sh"] + _get_jobs_args() + ndk_build_flags
+        test_env = dict(os.environ)
+        test_env["NDK"] = str(ndk_path)
+        if abi is not None:
+            test_env["APP_ABI"] = abi
+        test_env["APP_PLATFORM"] = f"android-{platform}"
+        rc, out = ndk.ext.subprocess.call_output(
+            build_cmd, env=test_env, encoding="utf-8"
+        )
+        if rc == 0:
+            return Success(test)
+        return Failure(test, out)
 
 
 def _platform_from_application_mk(test_dir: Path) -> Optional[int]:
@@ -382,7 +376,7 @@ class NdkBuildTest(BuildTest):
 
     def run(
         self, obj_dir: Path, dist_dir: Path, _test_filters: TestFilter
-    ) -> TestResult:
+    ) -> Tuple[TestResult, List[Test]]:
         logger().info("Building test: %s", self.name)
         obj_dir = self.get_build_dir(obj_dir)
         dist_dir = self.get_dist_dir(obj_dir, dist_dir)
@@ -396,8 +390,8 @@ class NdkBuildTest(BuildTest):
             self.abi,
         )
         if (failure := self.verify_no_cruft_in_dist(dist_dir, proc.args)) is not None:
-            return failure
-        return self.make_build_result(proc)
+            return failure, []
+        return self.make_build_result(proc), []
 
 
 def _run_ndk_build_test(
@@ -407,15 +401,14 @@ def _run_ndk_build_test(
     ndk_path: Path,
     ndk_build_flags: List[str],
     abi: Abi,
-) -> CompletedProcess[bytes]:
+) -> CompletedProcess[str]:
     _prep_build_dir(test_dir, obj_dir)
-    return ndk.ndkbuild.build(
-        ndk_path,
-        obj_dir,
-        abis=[abi],
-        dist_dir=dist_dir,
-        flags=ndk_build_flags,
-    )
+    with ndk.ext.os.cd(obj_dir):
+        args = [
+            f"APP_ABI={abi}",
+            f"NDK_LIBS_OUT={dist_dir}",
+        ] + _get_jobs_args()
+        return ndk.ndkbuild.build(ndk_path, args + ndk_build_flags)
 
 
 class CMakeBuildTest(BuildTest):
@@ -447,7 +440,7 @@ class CMakeBuildTest(BuildTest):
 
     def run(
         self, obj_dir: Path, dist_dir: Path, _test_filters: TestFilter
-    ) -> TestResult:
+    ) -> Tuple[TestResult, List[Test]]:
         obj_dir = self.get_build_dir(obj_dir)
         dist_dir = self.get_dist_dir(obj_dir, dist_dir)
         logger().info("Building test: %s", self.name)
@@ -462,8 +455,8 @@ class CMakeBuildTest(BuildTest):
             self.config.toolchain_file == CMakeToolchainFile.Legacy,
         )
         if (failure := self.verify_no_cruft_in_dist(dist_dir, proc.args)) is not None:
-            return failure
-        return self.make_build_result(proc)
+            return failure, []
+        return self.make_build_result(proc), []
 
 
 def _run_cmake_build_test(
@@ -474,7 +467,7 @@ def _run_cmake_build_test(
     cmake_flags: List[str],
     abi: str,
     use_legacy_toolchain_file: bool,
-) -> CompletedProcess[bytes]:
+) -> CompletedProcess[str]:
     _prep_build_dir(test_dir, obj_dir)
 
     cmake_bin = find_cmake()
@@ -498,12 +491,18 @@ def _run_cmake_build_test(
     else:
         args.append("-DANDROID_USE_LEGACY_TOOLCHAIN_FILE=OFF")
     proc = subprocess.run(
-        [str(cmake_bin)] + args + cmake_flags, check=False, capture_output=True
+        [str(cmake_bin)] + args + cmake_flags,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        encoding="utf-8",
     )
     if proc.returncode != 0:
         return proc
     return subprocess.run(
         [str(cmake_bin), "--build", str(abi_obj_dir), "--"] + _get_jobs_args(),
         check=False,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
     )

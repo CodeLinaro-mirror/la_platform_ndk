@@ -13,15 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-from pathlib import Path
-
 from ndk.test.spec import BuildConfiguration
 import ndk.testing.standalone_toolchain
 
 
-def run_test(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
-) -> tuple[bool, str]:
+def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str]:
     return ndk.testing.standalone_toolchain.run_test(
-        ndk_path, config, test_dir / "foo.cpp", ["--stl=libc++"], []
+        ndk_path, config, "foo.cpp", ["--stl=libc++"], []
     )

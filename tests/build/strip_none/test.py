@@ -21,11 +21,9 @@ from ndk.test.spec import BuildConfiguration
 from ndk.testing.flag_verifier import FlagVerifier
 
 
-def run_test(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
-) -> tuple[bool, Optional[str]]:
+def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, Optional[str]]:
     """Checks ndk-build V=1 output for lack of strip."""
-    verifier = FlagVerifier(test_dir / "project", ndk_path, config)
+    verifier = FlagVerifier(Path("project"), Path(ndk_path), config)
     # TODO: Fix this test.
     # This test has always been wrong, since it was only doing whole word
     # search for 'strip' and we call strip with its full path.

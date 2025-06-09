@@ -21,10 +21,8 @@ from ndk.test.spec import BuildConfiguration
 from ndk.testing.flag_verifier import FlagVerifier
 
 
-def run_test(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
-) -> tuple[bool, Optional[str]]:
+def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, Optional[str]]:
     """Checks ndk-build V=1 output for --strip-unneeded flag."""
-    verifier = FlagVerifier(test_dir / "project", ndk_path, config)
+    verifier = FlagVerifier(Path("project"), Path(ndk_path), config)
     verifier.expect_flag("--strip-unneeded")
     return verifier.verify_ndk_build().make_test_result_tuple()

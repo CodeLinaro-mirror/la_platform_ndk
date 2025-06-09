@@ -20,7 +20,6 @@ Cleans old build artifacts, configures the required environment, determines
 build goals, and invokes the build scripts.
 """
 import argparse
-import asyncio
 import collections
 import contextlib
 import copy
@@ -59,7 +58,6 @@ import ndk.builds
 import ndk.cmake
 import ndk.config
 import ndk.deps
-import ndk.ext.subprocess
 import ndk.notify
 import ndk.paths
 import ndk.test.builder
@@ -175,13 +173,13 @@ def create_signer_metadata(package_dir: Path) -> None:
     volumename_file.write_text(f"Android NDK {ndk.config.release}")
 
 
-async def make_app_bundle(
-    task_id: str,
+def make_app_bundle(
+    worker: ndk.workqueue.Worker,
     zip_path: Path,
     ndk_dir: Path,
     build_number: int,
     build_dir: Path,
-) -> str:
+) -> None:
     """Builds a macOS App Bundle of the NDK.
 
     The NDK is distributed in two forms on macOS: as a app bundle and in the
@@ -201,6 +199,7 @@ async def make_app_bundle(
         ndk_dir: The path to the NDK being bundled.
         build_dir: The path to the top level build directory.
     """
+    worker.status = "Packaging MacOS App Bundle"
     package_dir = build_dir / "bundle"
     app_directory_name = f"AndroidNDK{build_number}.app"
     bundle_dir = package_dir / app_directory_name
@@ -212,36 +211,35 @@ async def make_app_bundle(
     create_stub_entry_point(contents_dir / "MacOS" / entry_point_name)
 
     bundled_ndk = contents_dir / "NDK"
-    await asyncio.to_thread(shutil.copytree, ndk_dir, bundled_ndk, symlinks=True)
+    shutil.copytree(ndk_dir, bundled_ndk, symlinks=True)
 
     plist = contents_dir / "Info.plist"
     create_plist(plist, get_version_string(build_number), entry_point_name)
 
     shutil.copy2(ndk_dir / "source.properties", package_dir / "source.properties")
     create_signer_metadata(package_dir)
-    await ndk.archive.make_zip(
+    ndk.archive.make_zip(
         zip_path,
         package_dir,
         [p.name for p in package_dir.iterdir()],
         preserve_symlinks=True,
     )
-    return task_id
 
 
-async def make_zip(
-    task_id: str,
+def make_zip(
+    worker: ndk.workqueue.Worker,
     base_name: Path,
     root_dir: Path,
     paths: List[str],
     preserve_symlinks: bool,
-) -> str:
-    await ndk.archive.make_zip(
+) -> None:
+    worker.status = "Packaging .zip"
+    ndk.archive.make_zip(
         base_name, root_dir, paths, preserve_symlinks=preserve_symlinks
     )
-    return task_id
 
 
-async def package_ndk(
+def package_ndk(
     ndk_dir: Path, out_dir: Path, dist_dir: Path, host: Host, build_number: int
 ) -> Path:
     """Packages the built NDK for distribution.
@@ -258,46 +256,32 @@ async def package_ndk(
 
     purge_unwanted_files(ndk_dir)
 
-    zip_archive_description = "Creating zip archive"
-    app_bundle_description = "Creating app bundle"
-    ui = ndk.ui.get_task_progress_ui()
-    tasks = []
-    if host is Host.Darwin:
-        ui.start_task(app_bundle_description)
-        tasks.append(
-            asyncio.create_task(
-                make_app_bundle(
-                    app_bundle_description,
-                    dist_dir / f"android-ndk-{build_number}-app-bundle",
-                    ndk_dir,
-                    build_number,
-                    out_dir,
-                )
+    workqueue: ndk.workqueue.WorkQueue = ndk.workqueue.WorkQueue()
+    try:
+        if host == Host.Darwin:
+            workqueue.add_task(
+                make_app_bundle,
+                dist_dir / f"android-ndk-{build_number}-app-bundle",
+                ndk_dir,
+                build_number,
+                out_dir,
             )
+        workqueue.add_task(
+            make_zip,
+            package_path,
+            ndk_dir.parent,
+            [ndk_dir.name],
+            preserve_symlinks=(host != Host.Windows64),
         )
-
-    ui.start_task(zip_archive_description)
-    tasks.append(
-        asyncio.create_task(
-            make_zip(
-                zip_archive_description,
-                package_path,
-                ndk_dir.parent,
-                [ndk_dir.name],
-                preserve_symlinks=(host != Host.Windows64),
-            )
-        )
-    )
-
-    with ui.context():
-        for task in asyncio.as_completed(tasks):
-            ui.finish_task(await task)
+        ndk.ui.finish_workqueue_with_ui(workqueue, ndk.ui.get_build_progress_ui)
+    finally:
+        workqueue.terminate()
+        workqueue.join()
+    # TODO: Treat the .tar.br archive as authoritative and return its path.
     return package_path.with_suffix(".zip")
 
 
-async def build_ndk_tests(
-    out_dir: Path, dist_dir: Path, args: argparse.Namespace
-) -> bool:
+def build_ndk_tests(out_dir: Path, dist_dir: Path, args: argparse.Namespace) -> bool:
     """Builds the NDK tests.
 
     Args:
@@ -330,7 +314,7 @@ async def build_ndk_tests(
     test_spec = ndk.test.spec.TestSpec.load(ndk.paths.ndk_path("qa_config.json"))
     builder = ndk.test.builder.TestBuilder(test_spec, test_options, printer)
 
-    report = await asyncio.to_thread(builder.build)
+    report = builder.build()
     printer.print_summary(report)
 
     if not report.successful:
@@ -348,6 +332,7 @@ def install_file(file_name: str, src_dir: Path, dst_dir: Path) -> None:
     src_file = src_dir / file_name
     dst_file = dst_dir / file_name
 
+    print("Copying {} to {}...".format(src_file, dst_file))
     if src_file.is_dir():
         _install_dir(src_file, dst_file)
     elif src_file.is_symlink():
@@ -558,33 +543,21 @@ class Clang(ndk.builds.Module):
         # greatly improved, although handling Mac, Windows, and Linux
         # elegantly and consistently is a bit tricky.
         strip_cmd = ClangToolchain(Host.current()).strip
-
-        with ndk.ext.subprocess.verbose_subprocess_errors():
-            for file in ndk.paths.walk(bin_dir, directories=False):
-                if not file.is_file() or file.is_symlink():
-                    continue
-                if Host.current().is_windows:
-                    if file.suffix == ".exe":
-                        subprocess.run(
-                            [str(strip_cmd), str(file)], check=True, capture_output=True
-                        )
-                elif file.stat().st_size > 100000:
-                    subprocess.run(
-                        [str(strip_cmd), str(file)], check=True, capture_output=True
-                    )
-            for file in ndk.paths.walk(install_clanglib, directories=False):
-                if not file.is_file() or file.is_symlink():
-                    continue
-                if file.name == "lldb-server":
-                    subprocess.run(
-                        [str(strip_cmd), str(file)], check=True, capture_output=True
-                    )
-                if file.name.startswith("libLTO.") or file.name.startswith("liblldb."):
-                    subprocess.run(
-                        [str(strip_cmd), "--strip-unneeded", str(file)],
-                        check=True,
-                        capture_output=True,
-                    )
+        for file in ndk.paths.walk(bin_dir, directories=False):
+            if not file.is_file() or file.is_symlink():
+                continue
+            if Host.current().is_windows:
+                if file.suffix == ".exe":
+                    subprocess.check_call([str(strip_cmd), str(file)])
+            elif file.stat().st_size > 100000:
+                subprocess.check_call([str(strip_cmd), str(file)])
+        for file in ndk.paths.walk(install_clanglib, directories=False):
+            if not file.is_file() or file.is_symlink():
+                continue
+            if file.name == "lldb-server":
+                subprocess.check_call([str(strip_cmd), str(file)])
+            if file.name.startswith("libLTO.") or file.name.startswith("liblldb."):
+                subprocess.check_call([str(strip_cmd), "--strip-unneeded", str(file)])
 
         # These exist for plugin support and library use, but neither of those
         # are supported workflows for the NDK, so they're just dead weight.
@@ -867,8 +840,7 @@ class Black(ndk.builds.LintModule):
                 "Skipping format-checking. black was not found on your path."
             )
             return
-        with ndk.ext.subprocess.verbose_subprocess_errors():
-            subprocess.run(["black", "--check", "."], check=True, capture_output=True)
+        subprocess.check_call(["black", "--check", "."])
 
 
 @register
@@ -879,8 +851,7 @@ class Isort(ndk.builds.LintModule):
         if not shutil.which("isort"):
             logging.warning("Skipping isort. isort was not found on your path.")
             return
-        with ndk.ext.subprocess.verbose_subprocess_errors():
-            subprocess.run(["isort", "--check", "."], check=True, capture_output=True)
+        subprocess.check_call(["isort", "--check", "."])
 
 
 @register
@@ -899,8 +870,7 @@ class Pylint(ndk.builds.LintModule):
             "tests",
             *iter_python_lint_paths(lint=True),
         ]
-        with ndk.ext.subprocess.verbose_subprocess_errors():
-            subprocess.run(pylint, check=True, capture_output=True)
+        subprocess.check_call(pylint)
 
 
 @register
@@ -911,18 +881,14 @@ class Mypy(ndk.builds.LintModule):
         if not shutil.which("mypy"):
             logging.warning("Skipping type-checking. mypy was not found on your path.")
             return
-
-        with ndk.ext.subprocess.verbose_subprocess_errors():
-            subprocess.run(
-                [
-                    "mypy",
-                    "--config-file",
-                    str(ANDROID_DIR / "ndk/pyproject.toml"),
-                    *iter_python_lint_paths(lint=True),
-                ],
-                check=True,
-                capture_output=True,
-            )
+        subprocess.check_call(
+            [
+                "mypy",
+                "--config-file",
+                str(ANDROID_DIR / "ndk/pyproject.toml"),
+                *iter_python_lint_paths(lint=True),
+            ]
+        )
 
 
 @register
@@ -934,10 +900,7 @@ class Pytest(ndk.builds.LintModule):
         if not shutil.which("pytest"):
             logging.warning("Skipping pytest. pytest was not found on your path.")
             return
-        with ndk.ext.subprocess.verbose_subprocess_errors():
-            subprocess.run(
-                ["pytest", "ndk", "tests/pytest"], check=True, capture_output=True
-            )
+        subprocess.check_call(["pytest", "ndk", "tests/pytest"])
 
 
 @register
@@ -966,6 +929,7 @@ class Toolbox(ndk.builds.Module):
 
     def build(self) -> None:
         if not self.host.is_windows:
+            print(f"Nothing to do for {self.host}")
             return
 
         self.intermediate_out_dir.mkdir(parents=True, exist_ok=True)
@@ -976,6 +940,7 @@ class Toolbox(ndk.builds.Module):
 
     def install(self) -> None:
         if not self.host.is_windows:
+            print(f"Nothing to do for {self.host}")
             return
 
         install_dir = self.get_install_path()
@@ -1106,14 +1071,18 @@ class LibShaderc(ndk.builds.Module):
                 assert isinstance(d, str)
                 src = Path(source_dir) / d
                 dst = Path(dest_dir) / d
+                print(src, " -> ", dst)
                 shutil.copytree(src, dst, ignore=default_ignore_patterns)
             for f in properties["files"]:
+                print(source_dir, ":", dest_dir, ":", f)
                 # Only copy if the source file exists.  That way
                 # we can update this script in anticipation of
                 # source files yet-to-come.
                 assert isinstance(f, str)
                 if (Path(source_dir) / f).exists():
                     install_file(f, Path(source_dir), Path(dest_dir))
+                else:
+                    print(source_dir, ":", dest_dir, ":", f, "SKIPPED")
 
 
 @register
@@ -1702,6 +1671,7 @@ class SimplePerf(ndk.builds.Module):
         pass
 
     def install(self) -> None:
+        print("Installing simpleperf...")
         install_dir = self.get_install_path()
         if install_dir.exists():
             shutil.rmtree(install_dir)
@@ -2316,7 +2286,6 @@ def log_build_failure(log_path: Path, dist_dir: Path) -> None:
 
 
 def launch_buildable(
-    ui: ndk.ui.BuildProgressUi,
     deps: ndk.deps.DependencyManager,
     workqueue: ndk.workqueue.AnyWorkQueue,
     log_dir: Path,
@@ -2338,12 +2307,21 @@ def launch_buildable(
             if skip_deps and module in skip_modules:
                 deps.complete(module)
                 continue
-            ui.start_build(module)
             workqueue.add_task(launch_build, module, log_dir, debuggable)
 
 
+@contextlib.contextmanager
+def build_ui_context(debuggable: bool) -> Iterator[None]:
+    if debuggable:
+        yield
+    else:
+        console = ndk.ansi.get_console()
+        with ndk.ansi.disable_terminal_echo(sys.stdin):
+            with console.cursor_hide_context():
+                yield
+
+
 def wait_for_build(
-    ui: ndk.ui.BuildProgressUi,
     deps: ndk.deps.DependencyManager,
     workqueue: ndk.workqueue.AnyWorkQueue,
     dist_dir: Path,
@@ -2352,20 +2330,28 @@ def wait_for_build(
     skip_deps: bool,
     skip_modules: Set[ndk.builds.Module],
 ) -> None:
-    with ui.context():
+    console = ndk.ansi.get_console()
+    ui = ndk.ui.get_build_progress_ui(console, workqueue)
+    with build_ui_context(debuggable):
         while not workqueue.finished():
             result, module = workqueue.get_result()
             if not result:
-                ui.report_failure(module)
+                ui.clear()
+                print("Build failed: {}".format(module))
                 log_build_failure(module.log_path(log_dir), dist_dir)
                 sys.exit(1)
-            ui.finish_build(module)
+            elif not console.smart_console:
+                ui.clear()
+                print("Build succeeded: {}".format(module))
 
             deps.complete(module)
             launch_buildable(
-                ui, deps, workqueue, log_dir, debuggable, skip_deps, skip_modules
+                deps, workqueue, log_dir, debuggable, skip_deps, skip_modules
             )
-        ui.finish()
+
+            ui.draw()
+        ui.clear()
+        print("Build finished")
 
 
 def check_ndk_symlink(ndk_dir: Path, src: Path, target: Path) -> None:
@@ -2425,12 +2411,10 @@ def build_ndk(
     else:
         workqueue = ndk.workqueue.WorkQueue(args.jobs)
     try:
-        ui = ndk.ui.get_build_progress_ui()
         launch_buildable(
-            ui, deps, workqueue, log_dir, args.debuggable, args.skip_deps, deps_only
+            deps, workqueue, log_dir, args.debuggable, args.skip_deps, deps_only
         )
         wait_for_build(
-            ui,
             deps,
             workqueue,
             dist_dir,
@@ -2484,7 +2468,7 @@ def get_directory_size(path: Path) -> int:
     return int(size_str)
 
 
-async def main(argv: Sequence[str] | None = None) -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     total_timer = ndk.timer.Timer()
     total_timer.start()
 
@@ -2570,7 +2554,7 @@ async def main(argv: Sequence[str] | None = None) -> None:
             # part of packaging. If testing is ever moved to happen before
             # packaging, ensure that the directory is purged before and after
             # building the tests.
-            package_path = await package_ndk(
+            package_path = package_ndk(
                 ndk_dir, out_dir, dist_dir, args.system, args.build_number
             )
             packaged_size_bytes = package_path.stat().st_size
@@ -2582,7 +2566,7 @@ async def main(argv: Sequence[str] | None = None) -> None:
         if args.build_tests:
             print("Building tests...")
             purge_unwanted_files(ndk_dir)
-            good = await build_ndk_tests(out_dir, dist_dir, args)
+            good = build_ndk_tests(out_dir, dist_dir, args)
             print()  # Blank line between test results and timing data.
 
     total_timer.finish()
@@ -2626,10 +2610,9 @@ def _assign_self_to_new_process_group(fd: TextIO) -> Iterator[None]:
         yield
 
 
-# TODO: Is this used?
 def _run_main_in_new_process_group() -> None:
     with _assign_self_to_new_process_group(sys.stdin):
-        asyncio.run(main())
+        main()
 
 
 if __name__ == "__main__":

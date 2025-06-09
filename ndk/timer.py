@@ -18,7 +18,6 @@ import datetime
 import timeit
 from collections.abc import Iterator
 from contextlib import contextmanager
-from logging import INFO, Logger, getLogger
 from types import TracebackType
 from typing import Optional, Type
 
@@ -40,18 +39,6 @@ class Timer:
         self.start_time: Optional[float] = None
         self.end_time: Optional[float] = None
         self.duration: Optional[datetime.timedelta] = None
-
-    @staticmethod
-    @contextmanager
-    def log(
-        description: str,
-        logger: Logger = getLogger(),
-        log_level: int = INFO,
-    ) -> Iterator[None]:
-        timer = Timer()
-        with timer:
-            yield
-        logger.log(log_level, "%s took %s", description, timer.duration)
 
     def start(self) -> None:
         """Start the timer."""

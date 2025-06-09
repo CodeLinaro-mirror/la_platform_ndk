@@ -1,6 +1,6 @@
 from typing import Optional
 
-from ndk.devenv.testrunner.case import TestCase
+from ndk.test.devicetest.case import TestCase
 
 
 def build_unsupported(test: TestCase) -> Optional[str]:

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import multiprocessing
 import shutil
 import sys
 from collections.abc import Sequence
@@ -24,7 +23,6 @@ import ndk.paths
 from ndk.test.builder import TestBuilder
 from ndk.test.printers import StdoutPrinter
 from ndk.test.spec import TestOptions
-from ndk.timer import Timer
 
 try:
     from rich.logging import RichHandler
@@ -42,14 +40,12 @@ class App:
         dist_dir: Path,
         clean: bool,
         package: bool,
-        log_level: int = logging.INFO,
     ) -> None:
         self.ndk_path = ndk_path
         self.out_dir = out_dir
         self.dist_dir = dist_dir
         self.clean = clean
         self.package = package
-        self.log_level = log_level
 
     @staticmethod
     def main(argv: Sequence[str] | None = None) -> None:
@@ -92,28 +88,16 @@ class App:
             help="Directory to store packaged tests. Defaults to $DIST_DIR or ../out/dist",
         )
 
-        parser.add_argument(
-            "-v",
-            "--verbose",
-            action="count",
-            dest="verbosity",
-            default=0,
-            help="Increase logging verbosity.",
-        )
-
         args = parser.parse_args(argv)
-        log_level = logging.DEBUG if args.verbosity else logging.INFO
-        return App(
-            args.ndk, args.out_dir, args.dist_dir, args.clean, args.package, log_level
-        )
+        return App(args.ndk, args.out_dir, args.dist_dir, args.clean, args.package)
 
     def run(self) -> None:
+        log_level = logging.INFO
         handlers = None
         if CAN_USE_RICH:
-            handlers = [RichHandler(level=self.log_level)]
-        logging.basicConfig(level=self.log_level, handlers=handlers)
+            handlers = [RichHandler(level=log_level)]
+        logging.basicConfig(level=log_level, handlers=handlers)
 
-        logging.info("Machine has %d CPUs", multiprocessing.cpu_count())
         error = self.build_tests()
         if error is not None:
             sys.exit(error)
@@ -132,8 +116,7 @@ class App:
             # length issues on the Windows bots.
             extracted_ndk_path = self.out_dir / "ndk-zip"
             logging.info("Extracting %s to %s", self.ndk_path, extracted_ndk_path)
-            with Timer.log(f"Extracting {self.ndk_path}"):
-                self.extract_ndk(extracted_ndk_path)
+            self.extract_ndk(extracted_ndk_path)
 
         test_options = TestOptions(
             test_src_dir,

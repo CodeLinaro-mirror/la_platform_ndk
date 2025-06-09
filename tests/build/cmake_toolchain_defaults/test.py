@@ -21,9 +21,7 @@ from ndk.cmake import find_cmake, find_ninja
 from ndk.test.spec import BuildConfiguration, CMakeToolchainFile
 
 
-def run_test(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
-) -> tuple[bool, str]:
+def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str]:
     """Check that the default CMake toolchain behavior works.
 
     All our regular CMake tests pass the API level and ABI explicitly. This
@@ -32,8 +30,8 @@ def run_test(
     """
     cmake = find_cmake()
     ninja = find_ninja()
-    toolchain_path = ndk_path / "build/cmake/android.toolchain.cmake"
-    project_path = test_dir / "project"
+    toolchain_path = Path(ndk_path) / "build/cmake/android.toolchain.cmake"
+    project_path = "project"
     if config.toolchain_file is CMakeToolchainFile.Legacy:
         toolchain_mode = "ON"
     else:

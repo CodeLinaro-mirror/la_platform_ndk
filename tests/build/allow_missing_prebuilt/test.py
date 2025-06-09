@@ -14,66 +14,75 @@
 # limitations under the License.
 #
 """Check that LOCAL_ALLOW_MISSING_PREBUILT is obeyed."""
+import os
 from pathlib import Path
-from subprocess import CalledProcessError
+import subprocess
+import sys
 from typing import Optional
 
 from ndk.test.spec import BuildConfiguration
-from ndk.testing.builders import NdkBuildBuilder
+
+
+PROJECT_PATH = Path("project")
 
 
 def ndk_build(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration, sync_only: bool = False
+    ndk_path: str, config: BuildConfiguration, sync_only: bool = False
 ) -> tuple[bool, str]:
-    flags = []
+    ndk_build_path = os.path.join(ndk_path, "ndk-build")
+    if sys.platform == "win32":
+        ndk_build_path += ".cmd"
+    ndk_args = [
+        f"APP_ABI={config.abi}",
+        f"APP_PLATFORM=android-{config.api}",
+    ]
     if sync_only:
-        flags = ["-n"]
-    builder = NdkBuildBuilder.from_build_config(
-        test_dir / "project", ndk_path, config, flags
+        ndk_args.append("-n")
+    proc = subprocess.run(
+        [ndk_build_path, "-C", str(PROJECT_PATH)] + ndk_args,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        encoding="utf-8",
     )
-    try:
-        return True, builder.build()
-    except CalledProcessError as ex:
-        return False, ex.stdout
+    return proc.returncode == 0, proc.stdout
 
 
 def check_build_fail_if_missing(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
+    ndk_path: str, config: BuildConfiguration
 ) -> Optional[str]:
     """Checks that the build fails if the libraries are missing."""
-    success, output = ndk_build(test_dir, ndk_path, config)
+    success, output = ndk_build(ndk_path, config)
     if not success:
         return None
     return f"Build should have failed because prebuilts are missing:\n{output}"
 
 
 def check_sync_pass_if_missing(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
+    ndk_path: str, config: BuildConfiguration
 ) -> Optional[str]:
     """Checks that the build fails if the libraries are missing."""
-    success, output = ndk_build(test_dir, ndk_path, config, sync_only=True)
+    success, output = ndk_build(ndk_path, config, sync_only=True)
     if success:
         return None
     return f"Build should have passed because ran with -n:\n{output}"
 
 
 def check_build_pass_if_present(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
+    ndk_path: str, config: BuildConfiguration
 ) -> Optional[str]:
     """Checks that the build fails if the libraries are missing."""
-    prebuilt_dir = test_dir / "project/jni" / config.abi
+    prebuilt_dir = PROJECT_PATH / "jni" / config.abi
     prebuilt_dir.mkdir(parents=True)
     (prebuilt_dir / "libfoo.a").touch()
     (prebuilt_dir / "libfoo.so").touch()
-    success, output = ndk_build(test_dir, ndk_path, config)
+    success, output = ndk_build(ndk_path, config)
     if success:
         return None
     return f"Build should have passed because prebuilts are present:\n{output}"
 
 
-def run_test(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
-) -> tuple[bool, str]:
+def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str]:
     """Check that LOCAL_ALLOW_MISSING_PREBUILT is obeyed.
 
     LOCAL_ALLOW_MISSING_PREBUILT should prevent
@@ -84,10 +93,10 @@ def run_test(
     still fail if the library doesn't exist by the time it is needed, but
     that's caused by the failing copy rule.
     """
-    if (error := check_build_fail_if_missing(test_dir, ndk_path, config)) is not None:
+    if (error := check_build_fail_if_missing(ndk_path, config)) is not None:
         return False, error
-    if (error := check_sync_pass_if_missing(test_dir, ndk_path, config)) is not None:
+    if (error := check_sync_pass_if_missing(ndk_path, config)) is not None:
         return False, error
-    if (error := check_build_pass_if_present(test_dir, ndk_path, config)) is not None:
+    if (error := check_build_pass_if_present(ndk_path, config)) is not None:
         return False, error
     return True, ""

@@ -13,20 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-from pathlib import Path
-
 from ndk.test.spec import BuildConfiguration
 import ndk.testing.standalone_toolchain
 import ndk.abis
 
 
-def run_test(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
-) -> tuple[bool, str]:
+def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str]:
     min_api_for_abi = ndk.abis.min_api_for_abi(config.abi)
     arch = ndk.abis.abi_to_arch(config.abi)
     success, out = ndk.testing.standalone_toolchain.run_test(
-        ndk_path, config, test_dir / "foo.cpp", ["--api", str(min_api_for_abi - 1)], []
+        ndk_path, config, "foo.cpp", ["--api", str(min_api_for_abi - 1)], []
     )
     if success:
         return (

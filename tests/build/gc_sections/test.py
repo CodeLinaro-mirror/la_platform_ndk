@@ -28,12 +28,9 @@ from ndk.test.spec import BuildConfiguration
 from ndk.testing.flag_verifier import FlagVerifier
 
 
-def run_test(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
-) -> tuple[bool, Optional[str]]:
+def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, Optional[str]]:
     """Checks correct --gc-sections use."""
-    project_path = test_dir / "project"
-    verifier = FlagVerifier(project_path, ndk_path, config)
+    verifier = FlagVerifier(Path("project"), Path(ndk_path), config)
     verifier.with_cmake_flag("-DCMAKE_BUILD_TYPE=Release")
     verifier.with_ndk_build_flag("APP_DEBUG=false")
     verifier.expect_flag("-Wl,--gc-sections")
@@ -43,7 +40,7 @@ def run_test(
     if not passed:
         return passed, message
 
-    verifier = FlagVerifier(project_path, ndk_path, config)
+    verifier = FlagVerifier(Path("project"), Path(ndk_path), config)
     verifier.with_cmake_flag("-DCMAKE_BUILD_TYPE=RelWithDebInfo")
     verifier.expect_flag("-Wl,--gc-sections")
     passed, message = verifier.verify_cmake().make_test_result_tuple(
@@ -52,7 +49,7 @@ def run_test(
     if not passed:
         return passed, message
 
-    verifier = FlagVerifier(project_path, ndk_path, config)
+    verifier = FlagVerifier(Path("project"), Path(ndk_path), config)
     verifier.with_cmake_flag("-DCMAKE_BUILD_TYPE=MinSizeRel")
     verifier.expect_flag("-Wl,--gc-sections")
     passed, message = verifier.verify_cmake().make_test_result_tuple(
@@ -61,7 +58,7 @@ def run_test(
     if not passed:
         return passed, message
 
-    verifier = FlagVerifier(project_path, ndk_path, config)
+    verifier = FlagVerifier(Path("project"), Path(ndk_path), config)
     verifier.with_cmake_flag("-DCMAKE_BUILD_TYPE=Debug")
     verifier.with_ndk_build_flag("APP_DEBUG=true")
     verifier.expect_not_flag("-Wl,--gc-sections")

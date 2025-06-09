@@ -39,9 +39,7 @@ def find_cmake_and_ninja() -> tuple[Path, Path]:
     )
 
 
-def run_test(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
-) -> tuple[bool, str | None]:
+def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str | None]:
     cmake, ninja = find_cmake_and_ninja()
     with TemporaryDirectory() as build_dir:
         try:
@@ -51,7 +49,7 @@ def run_test(
                     "-B",
                     build_dir,
                     "-S",
-                    test_dir,
+                    ".",
                     f"-DCMAKE_ANDROID_NDK={ndk_path.as_posix()}",
                     "-DCMAKE_SYSTEM_NAME=Android",
                     f"-DCMAKE_SYSTEM_VERSION={config.api}",

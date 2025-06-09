@@ -14,68 +14,51 @@
 # limitations under the License.
 #
 """Helper functions for reading and writing .zip and .tar.bz2 archives."""
-import asyncio
 import os
 import shutil
 import subprocess
 from pathlib import Path
-from subprocess import CalledProcessError
 from typing import List
 
-from ndk.ext.subprocess import async_run
 
+def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
+    """Create a compressed tarball.
 
-def _tar_cmd() -> str:
-    if os.name == "nt":
-        # Explicit path, to avoid conflict with Cygwin.
-        return "c:/windows/system32/tar.exe"
-    return "tar"
+    Arguments have the same name and meaning as shutil.make_archive.
 
-
-def _make_bztar_cmd(base_name: Path, root_dir: Path, base_dir: Path) -> list[str]:
+    Args:
+        base_name: Base name of archive to create. ".tar.bz2" will be appended.
+        root_dir: Directory that's the root of the archive.
+        base_dir: Directory relative to root_dir to archive.
+    """
     if not root_dir.is_dir():
         raise RuntimeError(f"Not a directory: {root_dir}")
     if not (root_dir / base_dir).is_dir():
         raise RuntimeError(f"Not a directory: {root_dir}/{base_dir}")
 
-    return [
-        _tar_cmd(),
-        ("-j" if shutil.which("pbzip2") is None else "--use-compress-prog=pbzip2"),
-        "-cf",
-        str(base_name.with_suffix(".tar.bz2")),
-        "-C",
-        str(root_dir),
-        str(base_dir),
-    ]
-
-
-async def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
-    """Create a compressed tarball.
-
-    Arguments have the same name and meaning as shutil.make_archive.
-
-    Args:
-        base_name: Base name of archive to create. ".tar.bz2" will be appended.
-        root_dir: Directory that's the root of the archive.
-        base_dir: Directory relative to root_dir to archive.
-    """
-    cmd = _make_bztar_cmd(base_name, root_dir, base_dir)
-    proc = await asyncio.create_subprocess_exec(*cmd)
-    if status := await proc.wait():
-        raise CalledProcessError(status, cmd)
-
-
-def make_bztar_sync(base_name: Path, root_dir: Path, base_dir: Path) -> None:
-    """Create a compressed tarball.
-
-    Arguments have the same name and meaning as shutil.make_archive.
-
-    Args:
-        base_name: Base name of archive to create. ".tar.bz2" will be appended.
-        root_dir: Directory that's the root of the archive.
-        base_dir: Directory relative to root_dir to archive.
-    """
-    subprocess.run(_make_bztar_cmd(base_name, root_dir, base_dir), check=True)
+    if os.name == "nt":
+        shutil.make_archive(
+            str(base_name),
+            "bztar",
+            str(root_dir),
+            str(base_dir),
+        )
+    else:
+        subprocess.check_call(
+            [
+                "tar",
+                (
+                    "-j"
+                    if shutil.which("pbzip2") is None
+                    else "--use-compress-prog=pbzip2"
+                ),
+                "-cf",
+                str(base_name.with_suffix(".tar.bz2")),
+                "-C",
+                str(root_dir),
+                str(base_dir),
+            ]
+        )
 
 
 # For (un)zipping archives on Unix-like systems, the "zip" and "unzip" commands
@@ -109,7 +92,7 @@ def make_bztar_sync(base_name: Path, root_dir: Path, base_dir: Path) -> None:
 # - Tar: https://android-review.googlesource.com/c/platform/ndk/+/1967235
 
 
-async def make_zip(
+def make_zip(
     base_name: Path, root_dir: Path, paths: List[str], preserve_symlinks: bool
 ) -> Path:
     """Creates a zip package for distribution.
@@ -125,6 +108,7 @@ async def make_zip(
     if not root_dir.is_dir():
         raise RuntimeError(f"Not a directory: {root_dir}")
 
+    cwd = os.getcwd()
     zip_file = base_name.with_suffix(".zip")
     if zip_file.exists():
         zip_file.unlink()
@@ -132,7 +116,7 @@ async def make_zip(
     # See comment above regarding .zip files on Windows.
     if os.name == "nt":
         # Explicit path, to avoid conflict with Cygwin.
-        args = [_tar_cmd(), "-a"]
+        args = ["c:/windows/system32/tar.exe", "-a"]
         if not preserve_symlinks:
             args.append("-L")
         args.extend(["-cf", str(zip_file)])
@@ -141,8 +125,12 @@ async def make_zip(
         if preserve_symlinks:
             args.append("--symlinks")
     args.extend(paths)
-    await async_run(args, check=True, cwd=root_dir)
-    return zip_file
+    os.chdir(root_dir)
+    try:
+        subprocess.check_call(args)
+        return zip_file
+    finally:
+        os.chdir(cwd)
 
 
 def unzip(zip_file: Path, dest_dir: Path) -> None:
@@ -156,7 +144,8 @@ def unzip(zip_file: Path, dest_dir: Path) -> None:
     if os.name == "nt":
         subprocess.check_call(
             [
-                _tar_cmd(),
+                # Explicit path, to avoid conflict with Cygwin.
+                "c:/windows/system32/tar.exe",
                 "xf",
                 str(zip_file),
                 "-C",

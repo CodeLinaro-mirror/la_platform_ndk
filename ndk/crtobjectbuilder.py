@@ -14,7 +14,6 @@
 # limitations under the License.
 #
 """Helper class for building CRT objects."""
-import logging
 import shlex
 import shutil
 import subprocess
@@ -25,10 +24,6 @@ from ndk.platforms import ALL_API_LEVELS, MAX_API_LEVEL
 
 from .abis import Abi, abi_to_triple, clang_target, iter_abis_for_api
 from .paths import ANDROID_DIR, NDK_DIR
-
-
-def logger() -> logging.Logger:
-    return logging.getLogger(__name__)
 
 
 class CrtObjectBuilder:
@@ -75,7 +70,7 @@ class CrtObjectBuilder:
             str(NDK_DIR / "sources/crt/crtbrand.S"),
         ]
 
-        logger().debug("Running: %s", shlex.join(cc_args))
+        print(f"Running: {shlex.join(cc_args)}")
         subprocess.check_call(cc_args)
 
     def strip_platform_brand(self, dest: Path, obj_to_strip: Path) -> None:
@@ -88,7 +83,7 @@ class CrtObjectBuilder:
             str(obj_to_strip),
         ]
 
-        logger().debug("Running: %s", shlex.join(strip_args))
+        print(f"Running: {shlex.join(strip_args)}")
         subprocess.check_call(strip_args)
 
     def brand_object(self, dest: Path, obj_to_brand: Path, crtbrand_o: Path) -> None:
@@ -101,7 +96,7 @@ class CrtObjectBuilder:
             str(crtbrand_o),
         ]
 
-        logger().debug("Running: %s", shlex.join(ld_args))
+        print(f"Running: {shlex.join(ld_args)}")
         subprocess.check_call(ld_args)
 
     def build_crt_objects(

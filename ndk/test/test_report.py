@@ -16,10 +16,8 @@
 """Tests for ndk.test.report."""
 import unittest
 
+import ndk.test.devicetest.testplanrunner
 import ndk.test.report
-
-# TODO: This probably isn't where this test should live.
-from ndk.devenv.testrunner.testplanrunner import flake_filter
 
 
 class MockTest:
@@ -58,5 +56,7 @@ class ReportTest(unittest.TestCase):
             ),
         )
 
-        results = report.remove_all_failing_flaky(flake_filter)
+        results = report.remove_all_failing_flaky(
+            ndk.test.devicetest.testplanrunner.flake_filter
+        )
         self.assertEqual(1, len(results))

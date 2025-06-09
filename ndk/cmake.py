@@ -15,7 +15,6 @@
 #
 """APIs for dealing with cmake scripts."""
 
-import logging
 import os
 import pprint
 import shlex
@@ -25,7 +24,6 @@ from functools import cached_property
 from pathlib import Path
 from typing import Dict, List, Optional
 
-import ndk.ext.subprocess
 import ndk.paths
 import ndk.toolchains
 from ndk.hosts import Host
@@ -40,10 +38,6 @@ HOST_TRIPLE_MAP = {
     Host.Linux: "x86_64-linux-gnu",
     Host.Windows64: "x86_64-w64-mingw32",
 }
-
-
-def logger() -> logging.Logger:
-    return logging.getLogger(__name__)
 
 
 def find_cmake() -> Path:
@@ -137,18 +131,11 @@ class CMakeBuilder:
         pp_cmd = shlex.join(cmd)
         if subproc_env != dict(os.environ):
             pp_env = pprint.pformat(self.additional_env, indent=4)
-            logger().debug("Running: %s with env:\n%s", pp_cmd, pp_env)
+            print("Running: {} with env:\n{}".format(pp_cmd, pp_env))
         else:
-            logger().debug("Running: %s", pp_cmd)
+            print("Running: {}".format(pp_cmd))
 
-        with ndk.ext.subprocess.verbose_subprocess_errors():
-            subprocess.run(
-                cmd,
-                check=True,
-                env=subproc_env,
-                cwd=self.working_directory,
-                capture_output=True,
-            )
+        subprocess.check_call(cmd, env=subproc_env, cwd=self.working_directory)
 
     @cached_property
     def _cmake(self) -> Path:

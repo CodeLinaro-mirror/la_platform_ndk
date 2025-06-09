@@ -13,16 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""Check for correct link order from ndk-build."""
+"""Check for correct link order from ndk-build.
+"""
 from pathlib import Path
 import re
 import subprocess
-from subprocess import CalledProcessError
 from typing import Iterator
 
 import ndk.hosts
 from ndk.test.spec import BuildConfiguration
-from ndk.testing.builders import NdkBuildBuilder
 
 
 def find_public_unwind_symbols(output: str) -> Iterator[str]:
@@ -60,18 +59,24 @@ def readelf(ndk_path: Path, host: ndk.hosts.Host, library: Path, *args: str) -> 
     ).stdout
 
 
-def run_test(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
-) -> tuple[bool, str]:
+def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str]:
     """Check that unwinder symbols are hidden in outputs."""
-    project_path = test_dir / "project"
-    builder = NdkBuildBuilder.from_build_config(project_path, ndk_path, config)
-    try:
-        builder.build()
-    except CalledProcessError as ex:
-        return False, ex.stdout
-
+    ndk_build = Path(ndk_path) / "ndk-build"
     host = ndk.hosts.get_default_host()
+    if host.is_windows:
+        ndk_build = ndk_build.with_suffix(".cmd")
+    project_path = Path("project")
+    ndk_args = [
+        f"APP_ABI={config.abi}",
+        f"APP_PLATFORM=android-{config.api}",
+    ]
+    subprocess.run(
+        [str(ndk_build), "-C", str(project_path)] + ndk_args,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
     library = project_path / "libs" / str(config.abi) / "libfoo.so"
     readelf_output = readelf(Path(ndk_path), host, library, "-sW")
     for symbol in find_public_unwind_symbols(readelf_output):

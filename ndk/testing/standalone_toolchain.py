@@ -75,19 +75,12 @@ def make_standalone_toolchain(
 
 
 def test_standalone_toolchain(
-    install_dir: Path, test_source: Path, flags: list[str]
+    install_dir: Path, test_source: str, flags: list[str]
 ) -> tuple[bool, str]:
     compiler_name = "clang++"
 
     compiler = install_dir / "bin" / compiler_name
-    cmd = [
-        str(compiler),
-        str(test_source),
-        "-o",
-        str(install_dir / "a.out"),
-        "-Wl,--no-undefined",
-        "-Wl,--fatal-warnings",
-    ]
+    cmd = [str(compiler), test_source, "-Wl,--no-undefined", "-Wl,--fatal-warnings"]
     cmd += flags
     if os.name == "nt":
         # The Windows equivalent of exec doesn't know file associations so it
@@ -100,7 +93,7 @@ def test_standalone_toolchain(
 def run_test(
     ndk_path: Path,
     config: BuildConfiguration,
-    test_source: Path,
+    test_source: str,
     extra_args: list[str],
     flags: list[str],
 ) -> tuple[bool, str]:

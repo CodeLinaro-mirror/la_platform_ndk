@@ -14,7 +14,6 @@
 # limitations under the License.
 #
 """APIs for dealing with autoconf scripts."""
-import logging
 import multiprocessing
 import os
 import pprint
@@ -25,7 +24,7 @@ from pathlib import Path
 from typing import ContextManager, Dict, List, Optional
 
 import ndk.ext.os
-import ndk.ext.subprocess
+import ndk.paths
 import ndk.toolchains
 from ndk.hosts import Host, get_default_host
 
@@ -34,10 +33,6 @@ HOST_TRIPLE_MAP = {
     Host.Linux: "x86_64-linux-gnu",
     Host.Windows64: "x86_64-w64-mingw32",
 }
-
-
-def logger() -> logging.Logger:
-    return logging.getLogger(__name__)
 
 
 class AutoconfBuilder:
@@ -134,12 +129,11 @@ class AutoconfBuilder:
 
         if subproc_env != dict(os.environ):
             pp_env = pprint.pformat(env, indent=4)
-            logger().debug("Running: %s with env:\n%s", pp_cmd, pp_env)
+            print("Running: {} with env:\n{}".format(pp_cmd, pp_env))
         else:
-            logger().debug("Running: %s", pp_cmd)
+            print("Running: {}".format(pp_cmd))
 
-        with ndk.ext.subprocess.verbose_subprocess_errors():
-            subprocess.run(cmd, env=subproc_env, check=True, capture_output=True)
+        subprocess.run(cmd, env=subproc_env, check=True)
 
     def clean(self) -> None:
         """Cleans output directory.

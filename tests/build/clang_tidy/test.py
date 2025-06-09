@@ -14,22 +14,33 @@
 # limitations under the License.
 #
 """Test that we get warnings from clang-tidy."""
-from subprocess import CalledProcessError
-from pathlib import Path
+import os
+import subprocess
+import sys
 
 from ndk.test.spec import BuildConfiguration
-from ndk.testing.builders import NdkBuildBuilder
 
 
-def run_test(
-    test_dir: Path, ndk_path: Path, config: BuildConfiguration
-) -> tuple[bool, str]:
+def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, str]:
     """Checks ndk-build V=1 output for clang-tidy warnings."""
-    builder = NdkBuildBuilder.from_build_config(test_dir / "project", ndk_path, config)
-    try:
-        out = builder.build()
-    except CalledProcessError as ex:
-        return False, ex.stdout
+    ndk_build = os.path.join(ndk_path, "ndk-build")
+    if sys.platform == "win32":
+        ndk_build += ".cmd"
+    project_path = "project"
+    ndk_args = [
+        f"APP_ABI={config.abi}",
+        f"APP_PLATFORM=android-{config.api}",
+        "V=1",
+    ]
+    proc = subprocess.Popen(
+        [ndk_build, "-C", project_path] + ndk_args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        encoding="utf-8",
+    )
+    out, _ = proc.communicate()
+    if proc.returncode != 0:
+        return proc.returncode == 0, out
 
     expect = "warning: parameter 'argc' is unused [misc-unused-parameters]"
     return expect in out, out

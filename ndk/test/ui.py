@@ -1,163 +1,97 @@
-# Copyright (C) 2025 The Android Open Source Project
-# SPDX-License-Identifier: Apache-2.0
-from abc import ABC, abstractmethod
-from collections.abc import Iterator
-from contextlib import contextmanager
-from datetime import datetime, timedelta
+#
+# Copyright (C) 2017 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+"""UI classes for test output."""
+from __future__ import absolute_import, print_function
 
-import ndk.ansi
-from ndk.taskstatusreporter import TaskStatusReporter
-from ndk.test.printers import Printer
-from ndk.test.result import TestResult
-from ndk.test.richtextcolorer import rich_text_colorer
+import os
+from typing import Any, List
 
-from .buildtest.case import Test
-
-
-class TestBuildProgressUi(ABC):
-    @contextmanager
-    @abstractmethod
-    def ui_context(self) -> Iterator[None]:
-        """Enters the UI updating context."""
-
-    @abstractmethod
-    def on_task_scheduled(self) -> None:
-        """Called when a test build is scheduled."""
-
-    @abstractmethod
-    def on_task_finished(self, result: TestResult) -> None:
-        """Called when a test build is completed."""
-
-    @abstractmethod
-    def on_finished(self) -> None:
-        """Called when all test builds are completed."""
+from ndk.ansi import Console, font_bold, font_faint, font_reset
+from ndk.devenv.devices import Device
+from ndk.ui import AnsiUiRenderer, NonAnsiUiRenderer, Ui, UiRenderer
+from ndk.workqueue import ShardingWorkQueue, Worker
 
 
-try:
-    from rich.console import Group
-    from rich.live import Live
-    from rich.markup import escape
-    from rich.progress import Progress
-    from rich.table import Table
+class TestProgressUi(Ui):
+    NUM_TESTS_DIGITS = 6
 
-    CAN_USE_RICH = True
-
-    class RichTestBuildUi(TestBuildProgressUi):
-        def __init__(
-            self, test_status_reporter: TaskStatusReporter[Test], log_all_results: bool
-        ) -> None:
-            self.test_status_reporter = test_status_reporter
-            self.log_all_results = log_all_results
-            self.progress = Progress()
-            self.longest_running_builds_table = Table()
-            self.live = Live(get_renderable=self._ui_elements)
-            self.total = 0
-            self.task_id = self.progress.add_task("Building tests", total=None)
-
-        @contextmanager
-        def ui_context(self) -> Iterator[None]:
-            self.progress.update(self.task_id, total=self.total)
-            with self.live:
-                yield
-
-        def on_task_scheduled(self) -> None:
-            self.total += 1
-
-        def on_task_finished(self, result: TestResult) -> None:
-            if self.log_all_results or result.failed():
-                self.progress.console.print(
-                    result.to_string(colored=True, text_colorer=rich_text_colorer)
-                )
-            self.progress.advance(self.task_id)
-
-        def on_finished(self) -> None:
-            pass
-
-        def _ui_elements(self) -> Group:
-            table = Table(
-                "Duration",
-                "Test",
-                title="Long running tests",
-                title_justify="left",
-                title_style="",
-                box=None,
-                show_header=False,
-                show_edge=False,
-                show_lines=False,
-            )
-            now = datetime.now()
-            for (
-                test,
-                start_time,
-            ) in self.test_status_reporter.iter_longest_running_tasks(5):
-                elapsed = now - start_time
-                if elapsed < timedelta(seconds=1):
-                    break
-                total_seconds = elapsed.total_seconds()
-                minutes = int(total_seconds // 60)
-                seconds = int(total_seconds % 60)
-                table.add_row(f"{minutes:02}:{seconds:02}", escape(str(test)))
-
-            return Group(self.progress, table)
-
-except ModuleNotFoundError:
-    CAN_USE_RICH = False
-
-
-class BasicTestBuildUi(TestBuildProgressUi):
     def __init__(
         self,
-        test_status_reporter: TaskStatusReporter[Test],
-        printer: Printer,
-        log_all_results: bool,
-        log_period: timedelta = timedelta(seconds=5),
+        ui_renderer: UiRenderer,
+        show_worker_status: bool,
+        show_device_groups: bool,
+        workqueue: ShardingWorkQueue[Any, Device],
     ) -> None:
-        self.test_status_reporter = test_status_reporter
-        self.printer = printer
-        self.log_all_results = log_all_results
-        self.remaining = 0
-        self.start_time = datetime.now()
-        self.last_log = self.start_time
-        self.log_period = log_period
+        super().__init__(ui_renderer)
+        self.show_worker_status = show_worker_status
+        self.show_device_groups = show_device_groups
+        self.workqueue = workqueue
 
-    @contextmanager
-    def ui_context(self) -> Iterator[None]:
-        print(f"{self.remaining} tests remaining")
-        self.last_log = datetime.now()
-        yield
+    def get_ui_lines(self) -> List[str]:
+        lines = []
 
-    def on_task_scheduled(self) -> None:
-        self.remaining += 1
+        if self.show_worker_status:
+            for group, group_queues in self.workqueue.work_queues.items():
+                for device, work_queue in group_queues.items():
+                    style = font_bold()
+                    if all(w.status == Worker.IDLE_STATUS for w in work_queue.workers):
+                        style = font_faint()
+                    lines.append(f"{style}{device}{font_reset()}")
+                    for worker in work_queue.workers:
+                        style = ""
+                        if worker.status == Worker.IDLE_STATUS:
+                            style = font_faint()
+                        lines.append(f"  {style}{worker.status}{font_reset()}")
 
-    def on_task_finished(self, result: TestResult) -> None:
-        if self.log_all_results or result.failed():
-            self.printer.print_result(result)
-        self.remaining -= 1
-        now = datetime.now()
-        if now - self.last_log >= self.log_period:
-            self.last_log = now
-            print(f"{self.remaining} tests remaining after {now - self.start_time}")
+        lines.append(
+            "{: >{width}} tests remaining".format(
+                self.workqueue.num_tasks, width=self.NUM_TESTS_DIGITS
+            )
+        )
 
-            running_tasks = list(self.test_status_reporter.iter_longest_running_tasks())
-            if running_tasks:
-                print(f"{len(running_tasks)} currently running:")
-                for test, start_time in running_tasks:
-                    elapsed = now - start_time
-                    total_seconds = elapsed.total_seconds()
-                    minutes = int(total_seconds // 60)
-                    seconds = int(total_seconds % 60)
-                    print(f"\t{minutes:02}:{seconds:02}\t{test}")
+        if self.show_device_groups:
+            for group in sorted(self.workqueue.task_queues.keys(), key=str):
+                group_id = f"{len(group.shards)} devices {group}"
+                lines.append(
+                    "{: >{width}} {}".format(
+                        self.workqueue.task_queues[group].qsize(),
+                        group_id,
+                        width=self.NUM_TESTS_DIGITS,
+                    )
+                )
 
-    def on_finished(self) -> None:
-        pass
+        return lines
 
 
-def get_test_build_ui(
-    printer: Printer,
-    build_status_reporter: TaskStatusReporter[Test],
-    log_all_results: bool,
-) -> TestBuildProgressUi:
-    console = ndk.ansi.get_console()
-    if console.smart_console and CAN_USE_RICH:
-        return RichTestBuildUi(build_status_reporter, log_all_results)
-    return BasicTestBuildUi(build_status_reporter, printer, log_all_results)
+def get_test_progress_ui(
+    console: Console, workqueue: ShardingWorkQueue[Any, Device]
+) -> TestProgressUi:
+    ui_renderer: UiRenderer
+    if console.smart_console:
+        ui_renderer = AnsiUiRenderer(console)
+        show_worker_status = True
+        show_device_groups = True
+    elif os.name == "nt":
+        ui_renderer = NonAnsiUiRenderer(console)
+        show_worker_status = False
+        show_device_groups = False
+    else:
+        ui_renderer = NonAnsiUiRenderer(console)
+        show_worker_status = False
+        show_device_groups = True
+    return TestProgressUi(
+        ui_renderer, show_worker_status, show_device_groups, workqueue
+    )
