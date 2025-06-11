@@ -16,12 +16,12 @@
 """UI classes for test output."""
 from __future__ import absolute_import, print_function
 
-import os
 import sys
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from typing import Any, List
 
 from rich.progress import Progress, TaskID
@@ -29,7 +29,7 @@ from rich.progress import Progress, TaskID
 import ndk.ansi
 from ndk.ansi import Console, font_bold, font_faint, font_reset
 from ndk.devenv.devices import Device, DeviceShardingGroup
-from ndk.ui import AnsiUiRenderer, NonAnsiUiRenderer, UiRenderer
+from ndk.ui import AnsiUiRenderer, UiRenderer
 from ndk.workqueue import ShardingWorkQueue, Worker
 
 from .devicetest.testrun import TestRun
@@ -187,6 +187,43 @@ class RichTestProgressUi(TestProgressUi):
         pass
 
 
+class BasicTestProgressUi(TestProgressUi):
+    def __init__(
+        self,
+        printer: Printer,
+        log_all_results: bool,
+        log_period: timedelta = timedelta(seconds=5),
+    ) -> None:
+        self.printer = printer
+        self.log_all_results = log_all_results
+        self.remaining = 0
+        self.last_log = datetime.now()
+        self.log_period = log_period
+
+    @contextmanager
+    def ui_context(self) -> Iterator[None]:
+        print(f"{self.remaining} tests remaining")
+        self.last_log = datetime.now()
+        yield
+
+    def on_test_scheduled(self, test: TestRun) -> None:
+        self.remaining += 1
+
+    def on_test_finished(
+        self, device_group: DeviceShardingGroup, result: TestResult
+    ) -> None:
+        if self.log_all_results or result.failed():
+            self.printer.print_result(result)
+        self.remaining -= 1
+        now = datetime.now()
+        if now - self.last_log >= self.log_period:
+            self.last_log = now
+            print(f"{self.remaining} tests remaining")
+
+    def on_finished(self) -> None:
+        pass
+
+
 def get_test_progress_ui(
     console: Console,
     workqueue: ShardingWorkQueue[Any, Device],
@@ -196,25 +233,14 @@ def get_test_progress_ui(
     if USE_RICH and console.smart_console:
         return RichTestProgressUi(log_all_results)
 
-    ui_renderer: UiRenderer
     if console.smart_console:
-        ui_renderer = AnsiUiRenderer(console)
-        show_worker_status = True
-        show_device_groups = True
-    elif os.name == "nt":
-        ui_renderer = NonAnsiUiRenderer(console)
-        show_worker_status = False
-        show_device_groups = False
-    else:
-        ui_renderer = NonAnsiUiRenderer(console)
-        show_worker_status = False
-        show_device_groups = True
-    return WorkQueueTestProgressUi(
-        ui_renderer,
-        printer,
-        console,
-        log_all_results,
-        show_worker_status,
-        show_device_groups,
-        workqueue,
-    )
+        return WorkQueueTestProgressUi(
+            AnsiUiRenderer(console),
+            printer,
+            console,
+            log_all_results,
+            show_worker_status=True,
+            show_device_groups=True,
+            workqueue=workqueue,
+        )
+    return BasicTestProgressUi(printer, log_all_results)
