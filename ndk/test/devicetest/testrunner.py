@@ -186,7 +186,7 @@ class TestRunner:
 
         test_runner = TestPlanRunner(self.printer)
         with self.timing_report.timed("Run"):
-            report = test_runner.run(self.test_plan, fleet)
+            report = await test_runner.run(self.test_plan, fleet)
 
         self.printer.print_summary(report)
         return None

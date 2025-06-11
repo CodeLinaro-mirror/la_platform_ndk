@@ -72,11 +72,11 @@ class TestRun:
             raise ValueError("Test result must have either failed or passed.")
         return result
 
-    def run(self, device: Device) -> TestResult:
+    async def run(self, device: Device) -> TestResult:
         config = self.test_case.check_unsupported(device.config())
         if config is not None:
             return Skipped(self, f"test unsupported for {config}")
-        return self.make_result(self.test_case.run(device), device)
+        return self.make_result(await self.test_case.run(device), device)
 
     def __str__(self) -> str:
         os_version = self.device_group.config.version
