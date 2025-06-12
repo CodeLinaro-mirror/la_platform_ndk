@@ -23,13 +23,6 @@ from subprocess import CalledProcessError
 from typing import List
 
 
-def _tar_cmd() -> str:
-    if os.name == "nt":
-        # Explicit path, to avoid conflict with Cygwin.
-        return "c:/windows/system32/tar.exe"
-    return "tar"
-
-
 async def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
     """Create a compressed tarball.
 
@@ -45,19 +38,30 @@ async def make_bztar(base_name: Path, root_dir: Path, base_dir: Path) -> None:
     if not (root_dir / base_dir).is_dir():
         raise RuntimeError(f"Not a directory: {root_dir}/{base_dir}")
 
-    cmd = [
-        _tar_cmd(),
-        ("-j" if shutil.which("pbzip2") is None else "--use-compress-prog=pbzip2"),
-        "-cf",
-        str(base_name.with_suffix(".tar.bz2")),
-        "-C",
-        str(root_dir),
-        str(base_dir),
-    ]
+    if os.name == "nt":
+        # Windows has a tar.exe in C:\Windows\System32, but for some reason using that
+        # causes the build to time out in CI, and only in CI.
+        await asyncio.to_thread(
+            shutil.make_archive,
+            str(base_name),
+            "bztar",
+            str(root_dir),
+            str(base_dir),
+        )
+    else:
+        cmd = [
+            "tar",
+            ("-j" if shutil.which("pbzip2") is None else "--use-compress-prog=pbzip2"),
+            "-cf",
+            str(base_name.with_suffix(".tar.bz2")),
+            "-C",
+            str(root_dir),
+            str(base_dir),
+        ]
 
-    proc = await asyncio.create_subprocess_exec(*cmd)
-    if status := await proc.wait():
-        raise CalledProcessError(status, cmd)
+        proc = await asyncio.create_subprocess_exec(*cmd)
+        if status := await proc.wait():
+            raise CalledProcessError(status, cmd)
 
 
 # For (un)zipping archives on Unix-like systems, the "zip" and "unzip" commands
@@ -115,7 +119,7 @@ def make_zip(
     # See comment above regarding .zip files on Windows.
     if os.name == "nt":
         # Explicit path, to avoid conflict with Cygwin.
-        args = [_tar_cmd(), "-a"]
+        args = ["c:/windows/system32/tar.exe", "-a"]
         if not preserve_symlinks:
             args.append("-L")
         args.extend(["-cf", str(zip_file)])
@@ -143,7 +147,8 @@ def unzip(zip_file: Path, dest_dir: Path) -> None:
     if os.name == "nt":
         subprocess.check_call(
             [
-                _tar_cmd(),
+                # Explicit path, to avoid conflict with Cygwin.
+                "c:/windows/system32/tar.exe",
                 "xf",
                 str(zip_file),
                 "-C",
