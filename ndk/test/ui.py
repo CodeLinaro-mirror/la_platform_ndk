@@ -4,11 +4,13 @@ import sys
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 
 import ndk.ansi
+from ndk.ansi import Console
 from ndk.test.printers import Printer
 from ndk.test.result import TestResult
-from ndk.ui import AnsiUiRenderer, NonAnsiUiRenderer, UiRenderer, WorkQueueUi
+from ndk.ui import AnsiUiRenderer, WorkQueueUi
 from ndk.workqueue import AnyWorkQueue
 
 
@@ -35,21 +37,21 @@ class WorkQueueTestBuildUi(TestBuildProgressUi):
     def __init__(
         self,
         workqueue: AnyWorkQueue,
+        console: Console,
         printer: Printer,
         log_all_results: bool,
     ) -> None:
+        if not console.smart_console:
+            raise RuntimeError(
+                "WorkQueueTestBuildUi can only be used with smart consoles"
+            )
+
         self.console = ndk.ansi.get_console()
         self.printer = printer
         self.log_all_results = log_all_results
-
-        ui_renderer: UiRenderer
-        if self.console.smart_console:
-            ui_renderer = AnsiUiRenderer(self.console)
-            show_worker_status = True
-        else:
-            ui_renderer = NonAnsiUiRenderer(self.console)
-            show_worker_status = False
-        self.wrapped_ui = WorkQueueUi(ui_renderer, show_worker_status, workqueue)
+        self.wrapped_ui = WorkQueueUi(
+            AnsiUiRenderer(self.console), show_worker_status=True, workqueue=workqueue
+        )
 
     @contextmanager
     def ui_context(self) -> Iterator[None]:
@@ -70,7 +72,45 @@ class WorkQueueTestBuildUi(TestBuildProgressUi):
         self.wrapped_ui.clear()
 
 
+class BasicTestBuildUi(TestBuildProgressUi):
+    def __init__(
+        self,
+        printer: Printer,
+        log_all_results: bool,
+        log_period: timedelta = timedelta(seconds=5),
+    ) -> None:
+        self.printer = printer
+        self.log_all_results = log_all_results
+        self.remaining = 0
+        self.last_log = datetime.now()
+        self.log_period = log_period
+
+    @contextmanager
+    def ui_context(self) -> Iterator[None]:
+        print(f"{self.remaining} tests remaining")
+        self.last_log = datetime.now()
+        yield
+
+    def on_task_scheduled(self) -> None:
+        self.remaining += 1
+
+    def on_task_finished(self, result: TestResult) -> None:
+        if self.log_all_results or result.failed():
+            self.printer.print_result(result)
+        self.remaining -= 1
+        now = datetime.now()
+        if now - self.last_log >= self.log_period:
+            self.last_log = now
+            print(f"{self.remaining} tests remaining")
+
+    def on_finished(self) -> None:
+        pass
+
+
 def get_test_build_ui(
     workqueue: AnyWorkQueue, printer: Printer, log_all_results: bool
 ) -> TestBuildProgressUi:
-    return WorkQueueTestBuildUi(workqueue, printer, log_all_results)
+    console = ndk.ansi.get_console()
+    if console.smart_console:
+        return WorkQueueTestBuildUi(workqueue, console, printer, log_all_results)
+    return BasicTestBuildUi(printer, log_all_results)
