@@ -16,26 +16,50 @@
 """APIs for interacting with ndk-build."""
 from __future__ import absolute_import
 
+import multiprocessing
 import os
 import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
 
+from ndk.abis import Abi
 
-def make_build_command(ndk_path: Path, build_flags: list[str]) -> list[str]:
+
+def make_build_command(ndk_path: Path) -> list[str]:
     ndk_build_path = ndk_path / "ndk-build"
-    cmd = [str(ndk_build_path)] + build_flags
+    cmd = [str(ndk_build_path)]
     if os.name == "nt":
         cmd = ["cmd", "/c"] + cmd
     return cmd
 
 
-def build(ndk_path: Path, build_flags: list[str]) -> CompletedProcess[str]:
+def build(
+    ndk_path: Path,
+    project_path: Path,
+    abis: list[Abi] | None = None,
+    min_sdk_version: int | None = None,
+    jobs: int = multiprocessing.cpu_count(),
+    dist_dir: Path | None = None,
+    flags: list[str] | None = None,
+) -> CompletedProcess[bytes]:
     """Invokes ndk-build with the given arguments."""
+    args = make_build_command(ndk_path)
+    if jobs != 1:
+        args.extend([f"-j{jobs}", f"-l{jobs}"])
+    if abis is not None:
+        args.append(f"APP_ABI={','.join(abis)}")
+    if min_sdk_version is not None:
+        args.append(f"APP_PLATFORM=android-{min_sdk_version}")
+    if dist_dir is not None:
+        args.append(f"NDK_LIBS_OUT={dist_dir}")
+
+    if flags is not None:
+        args.extend(flags)
+
     return subprocess.run(
-        make_build_command(ndk_path, build_flags),
+        args,
         check=False,
+        cwd=project_path,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        encoding="utf-8",
     )
