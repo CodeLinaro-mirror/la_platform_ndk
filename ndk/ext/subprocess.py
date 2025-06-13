@@ -88,11 +88,21 @@ def verbose_subprocess_errors() -> Iterator[None]:
 
 
 async def async_run(
-    cmd: Sequence[str | Path], check: bool, cwd: Path | None = None
+    cmd: Sequence[str | Path],
+    check: bool,
+    cwd: Path | None = None,
+    capture_output: bool = False,
 ) -> asyncio.subprocess.Process:
     """Runs and logs an asyncio subprocess."""
+    stdout = None
+    stderr = None
+    if capture_output:
+        stdout = subprocess.PIPE
+        stderr = subprocess.PIPE
     logger().debug("exec CWD=%s %s", cwd or Path.cwd(), shlex.join(str(a) for a in cmd))
-    proc = await asyncio.create_subprocess_exec(cmd[0], *cmd[1:], cwd=cwd)
+    proc = await asyncio.create_subprocess_exec(
+        cmd[0], *cmd[1:], cwd=cwd, stdout=stdout, stderr=stderr
+    )
     await proc.communicate()
     if check and proc.returncode != 0:
         raise RuntimeError(

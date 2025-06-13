@@ -13,6 +13,7 @@ from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedCo
 from ndk.abis import Abi
 from ndk.devenv.deviceproviders.acid import AcidDeviceProvider
 from ndk.devenv.devices import Device, DeviceFleet, find_devices
+from ndk.ext.subprocess import async_run
 from ndk.test.filters import TestFilter
 from ndk.test.printers import Printer
 from ndk.test.spec import BuildConfiguration, TestSpec
@@ -26,6 +27,16 @@ from .testplanrunner import TestPlanRunner
 def logger() -> logging.Logger:
     """Returns the module logger."""
     return logging.getLogger(__name__)
+
+
+async def gcert_status_is_good() -> bool:
+    proc = await async_run(["gcertstatus"], check=False, capture_output=True)
+    return proc.returncode == 0
+
+
+async def acquire_gcert() -> bool:
+    proc = await async_run(["gcert"], check=True)
+    return proc.returncode == 0
 
 
 async def acquire_missing_devices(fleet: DeviceFleet) -> None:
@@ -43,6 +54,12 @@ async def acquire_missing_devices(fleet: DeviceFleet) -> None:
     if shutil.which("acid") is None:
         print("Cannot auto-acquire missing devices because acid is not installed")
         return
+
+    if not await gcert_status_is_good():
+        print("Running gcert to acquire certificates for acid")
+        if not await acquire_gcert():
+            print("Unable to acquire credentials, cannot lease device from acid")
+            return
 
     progress = Progress(
         TextColumn("[progress.description]{task.description}"),
