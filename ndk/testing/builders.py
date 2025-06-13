@@ -49,9 +49,7 @@ class CMakeBuilder:
         if cmake_flags is None:
             cmake_flags = []
         self.cmake_flags = cmake_flags
-
-        # PythonBuildTest ensures that we're cd'd into the test out directory.
-        self.out_dir = Path("build")
+        self.out_dir = project / "build"
 
     @staticmethod
     def from_build_config(

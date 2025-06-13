@@ -22,6 +22,7 @@ from ndk.testing.flag_verifier import FlagVerifier, FlagVerifierResult
 
 
 def check_configuration(
+    test_dir: Path,
     ndk_path: str,
     build_config: BuildConfiguration,
     cmake_config: str,
@@ -29,7 +30,7 @@ def check_configuration(
     unexpected_flags: list[str],
 ) -> FlagVerifierResult:
     verifier = FlagVerifier(
-        Path("project"), Path(ndk_path), build_config
+        test_dir / "project", Path(ndk_path), build_config
     ).with_cmake_flag(f"-DCMAKE_BUILD_TYPE={cmake_config}")
     for flag in expected_flags:
         verifier.expect_flag(flag)
@@ -38,7 +39,9 @@ def check_configuration(
     return verifier.verify_cmake()
 
 
-def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, Optional[str]]:
+def run_test(
+    test_dir: Path, ndk_path: str, config: BuildConfiguration
+) -> tuple[bool, Optional[str]]:
     """Check that the CMake toolchain uses the correct default flags."""
     verify_configs: dict[str, tuple[list[str], list[str]]] = {
         # No flag is the same as -O0. As long as no other opt flag is used, the default
@@ -50,7 +53,7 @@ def run_test(ndk_path: str, config: BuildConfiguration) -> tuple[bool, Optional[
     }
     for cmake_config, (expected_flags, unexpected_flags) in verify_configs.items():
         result = check_configuration(
-            ndk_path, config, cmake_config, expected_flags, unexpected_flags
+            test_dir, ndk_path, config, cmake_config, expected_flags, unexpected_flags
         )
         if result.failed():
             return result.make_test_result_tuple()
