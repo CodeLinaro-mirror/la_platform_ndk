@@ -19,7 +19,7 @@ directly, see the [build system maintainers guide].
 
 ## r28c
 
-- [Issue 2145] ndk-build and CMake now appropriately configure 4KiB page sizes
+- [Issue 2145]: ndk-build and CMake now appropriately configure 4KiB page sizes
   when `APP_SUPPORT_FLEXIBLE_PAGE_SIZES`/`ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES`
   are used.
 
