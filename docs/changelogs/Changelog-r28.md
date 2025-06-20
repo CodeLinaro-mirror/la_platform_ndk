@@ -17,6 +17,21 @@ directly, see the [build system maintainers guide].
 - The 16 KiB page size compatibility option that was added in r27 is now on by
   default. If necessary, you can still opt-out (see below).
 
+## r28c
+
+- Updated LLVM to clang-r530567e. See `clang_source_info.md` in the toolchain
+  directory for version information.
+  - [Issue 2144]: Fixed issue where `lldb.sh` did not work when installed to a
+    path which contained spaces.
+- [Issue 2143]: Fixed lldb.sh not finding libpython on macOS.
+- [Issue 2145]: ndk-build and CMake now appropriately configure 4KiB page sizes
+  when `APP_SUPPORT_FLEXIBLE_PAGE_SIZES`/`ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES`
+  are used.
+
+[Issue 2143]: https://github.com/android/ndk/issues/2143
+[Issue 2144]: https://github.com/android/ndk/issues/2144
+[Issue 2145]: https://github.com/android/ndk/issues/2145
+
 ## r28b
 
 - Updated LLVM to clang-r530567d. See `clang_source_info.md` in the toolchain
