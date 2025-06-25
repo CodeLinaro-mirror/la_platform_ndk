@@ -27,6 +27,17 @@ directly, see the [build system maintainers guide].
 
 [Support 16 KB page sizes]: https://developer.android.com/guide/practices/page-sizes
 
+## r27d
+
+* Updated LLVM to clang-r522817d. See `clang_source_info.md` in the toolchain
+  directory for version information.
+  * [Issue 2144]: Fixed issue where `lldb.sh` did not work when installed to a
+    path which contained spaces.
+* [Issue 2143]: Fixed lldb.sh not finding libpython on macOS.
+
+[Issue 2143]: https://github.com/android/ndk/issues/2143
+[Issue 2144]: https://github.com/android/ndk/issues/2144
+
 ## r27c
 
 * Updated LLVM to clang-r522817c. See `clang_source_info.md` in the toolchain
