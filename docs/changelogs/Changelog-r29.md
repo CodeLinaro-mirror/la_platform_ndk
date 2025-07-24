@@ -16,9 +16,8 @@ directly, see the [build system maintainers guide].
 
 ## Changes
 
-- Updated LLVM to clang-r563880. See `clang_source_info.md` in the toolchain
+- Updated LLVM to clang-r563880b. See `clang_source_info.md` in the toolchain
   directory for version information.
-  - [Issue 2142]: Fixed crash with `icf=safe` due to duplicate GOT entries.
   - [Issue 2144]: Fixed issue where `lldb.sh` did not work when installed to a
     path which contained spaces.
 - ndk-stack will now find symbols in files with matching build IDs even if the
