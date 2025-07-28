@@ -447,17 +447,20 @@ class Clang(ndk.builds.Module):
             # consistent behavior across platforms, and we also don't want the
             # extra cost they incur (fork/exec is cheap, but CreateProcess is
             # expensive), so remove them.
-            assert set(bin_dir.glob("*.real")) == {
-                bin_dir / "clang++.real",
-                bin_dir / "clang.real",
-                bin_dir / "clang-tidy.real",
+            assert set(bin_dir.glob("*-real")) == {
+                bin_dir / "clang-real",
+                bin_dir / "clang-tidy-real",
+                bin_dir / "clang++-real",
             }
+            (bin_dir / "clang.real").unlink()
+            (bin_dir / "clang-tidy.real").unlink()
             (bin_dir / "clang++.real").unlink()
+            (bin_dir / "clang++-real").unlink()
             (bin_dir / "clang++").unlink()
             (bin_dir / "clang-cl").unlink()
             (bin_dir / "clang-tidy").unlink()
-            (bin_dir / "clang.real").rename(bin_dir / "clang")
-            (bin_dir / "clang-tidy.real").rename(bin_dir / "clang-tidy")
+            (bin_dir / "clang-real").rename(bin_dir / "clang")
+            (bin_dir / "clang-tidy-real").rename(bin_dir / "clang-tidy")
             make_symlink(bin_dir / "clang++", Path("clang"))
 
         bin_ext = ".exe" if self.host.is_windows else ""
