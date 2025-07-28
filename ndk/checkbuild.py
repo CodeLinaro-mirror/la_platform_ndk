@@ -1424,6 +1424,8 @@ class Toolchain(ndk.builds.Module):
             shutil.copystat(lld, new_bin_ld)
         else:
             # This reduces the size of the NDK by 60M on non-Windows.
+            if new_bin_ld.exists():
+                new_bin_ld.unlink()
             os.symlink(lld.name, new_bin_ld)
 
         for api in ALL_API_LEVELS:
@@ -1438,6 +1440,8 @@ class Toolchain(ndk.builds.Module):
         # sysroot location to centralize these, or possibly just remove them
         # from the NDK since they aren't particularly useful anyway.
         system_stl_hdr_dir = install_dir / "include/c++"
+        if system_stl_hdr_dir.exists():
+            shutil.rmtree(system_stl_hdr_dir)
         system_stl_hdr_dir.mkdir(parents=True)
         system_stl_inc_src = system_stl_dir / "include"
         system_stl_inc_dst = system_stl_hdr_dir / "4.9.x"
