@@ -447,17 +447,20 @@ class Clang(ndk.builds.Module):
             # consistent behavior across platforms, and we also don't want the
             # extra cost they incur (fork/exec is cheap, but CreateProcess is
             # expensive), so remove them.
-            assert set(bin_dir.glob("*.real")) == {
-                bin_dir / "clang++.real",
-                bin_dir / "clang.real",
-                bin_dir / "clang-tidy.real",
+            assert set(bin_dir.glob("*-real")) == {
+                bin_dir / "clang-real",
+                bin_dir / "clang-tidy-real",
+                bin_dir / "clang++-real",
             }
+            (bin_dir / "clang.real").unlink()
+            (bin_dir / "clang-tidy.real").unlink()
             (bin_dir / "clang++.real").unlink()
+            (bin_dir / "clang++-real").unlink()
             (bin_dir / "clang++").unlink()
             (bin_dir / "clang-cl").unlink()
             (bin_dir / "clang-tidy").unlink()
-            (bin_dir / "clang.real").rename(bin_dir / "clang")
-            (bin_dir / "clang-tidy.real").rename(bin_dir / "clang-tidy")
+            (bin_dir / "clang-real").rename(bin_dir / "clang")
+            (bin_dir / "clang-tidy-real").rename(bin_dir / "clang-tidy")
             make_symlink(bin_dir / "clang++", Path("clang"))
 
         bin_ext = ".exe" if self.host.is_windows else ""
@@ -1403,6 +1406,7 @@ class Toolchain(ndk.builds.Module):
         system_stl_inc_dst = system_stl_hdr_dir / "4.9.x"
         shutil.copytree(system_stl_inc_src, system_stl_inc_dst)
         self.relocate_libcxx()
+        self.install_libunwind_headers()
         self.create_libcxx_linker_scripts()
 
     def relocate_libcxx(self) -> None:
@@ -1452,6 +1456,12 @@ class Toolchain(ndk.builds.Module):
 
         # There's also an Android-specific __config_site header that we need to install.
         shutil.copy2(self.find_libcxx_config_site(), dest / "__config_site")
+
+    def install_libunwind_headers(self) -> None:
+        src = ClangToolchain.path_for_host(Host.Linux) / "include"
+        dest = self.sysroot_install_path / "usr/include"
+        shutil.copy2(src / "__libunwind_config.h", dest)
+        shutil.copy2(src / "libunwind.h", dest)
 
     def find_libcxx_config_site(self) -> Path:
         """Finds the __config_site file for the NDK libc++.
