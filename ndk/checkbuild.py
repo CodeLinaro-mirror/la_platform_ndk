@@ -2055,12 +2055,14 @@ class SourceProperties(ndk.builds.Module):
         )
 
 
-def create_notice_file(path: Path, for_group: ndk.builds.NoticeGroup) -> None:
+def create_notice_file(
+    path: Path, modules: list[ndk.builds.Module], for_group: ndk.builds.NoticeGroup
+) -> None:
     # Using sets here so we can perform some amount of duplicate reduction. In
     # a lot of cases there will be minor differences that cause lots of
     # "duplicates", but might as well catch what we can.
     notice_files = set()
-    for module in ALL_MODULES:
+    for module in modules:
         if module.notice_group == for_group:
             for notice in module.notices:
                 notice_files.add(notice)
@@ -2126,15 +2128,16 @@ def _get_transitive_module_deps(
     deps: Set[ndk.builds.Module],
     unknown_deps: Set[str],
     seen: Set[ndk.builds.Module],
+    name_to_module_map: dict[str, ndk.builds.Module],
 ) -> None:
     seen.add(module)
 
     for name in module.deps:
-        if name not in NAMES_TO_MODULES:
+        if name not in name_to_module_map:
             unknown_deps.add(name)
             continue
 
-        dep = NAMES_TO_MODULES[name]
+        dep = name_to_module_map[name]
         if dep in seen:
             # Cycle detection is already handled by ndk.deps.DependencyManager.
             # Just avoid falling into an infinite loop here and let that do the
@@ -2142,16 +2145,17 @@ def _get_transitive_module_deps(
             continue
 
         deps.add(dep)
-        _get_transitive_module_deps(dep, deps, unknown_deps, seen)
+        _get_transitive_module_deps(dep, deps, unknown_deps, seen, name_to_module_map)
 
 
 def get_transitive_module_deps(
     module: ndk.builds.Module,
+    name_to_module_map: dict[str, ndk.builds.Module],
 ) -> Tuple[Set[ndk.builds.Module], Set[str]]:
     seen: Set[ndk.builds.Module] = set()
     deps: Set[ndk.builds.Module] = set()
     unknown_deps: Set[str] = set()
-    _get_transitive_module_deps(module, deps, unknown_deps, seen)
+    _get_transitive_module_deps(module, deps, unknown_deps, seen, name_to_module_map)
     return deps, unknown_deps
 
 
@@ -2164,19 +2168,22 @@ def get_modules_to_build(
     In the event that the user has passed a subset of modules, we need to also
     return the dependencies of that module.
     """
+
+    name_to_module_map = {t.name: t() for t in ALL_MODULE_TYPES}
+
     unknown_modules = set()
     modules = set()
     deps_only = set()
     for name in module_names:
-        if name not in NAMES_TO_MODULES:
+        if name not in name_to_module_map:
             # Build a list of all the unknown modules rather than error out
             # immediately so we can provide a complete error message.
             unknown_modules.add(name)
 
-        module = NAMES_TO_MODULES[name]
+        module = name_to_module_map[name]
         modules.add(module)
 
-        deps, unknown_deps = get_transitive_module_deps(module)
+        deps, unknown_deps = get_transitive_module_deps(module, name_to_module_map)
         modules.update(deps)
 
         # --skip-deps may be passed if the user wants to avoid rebuilding a
@@ -2201,19 +2208,14 @@ def get_modules_to_build(
     return sorted(list(build_modules), key=str), deps_only
 
 
-ALL_MODULES = [t() for t in ALL_MODULE_TYPES]
-NAMES_TO_MODULES = {m.name: m for m in ALL_MODULES}
+ALL_MODULE_NAMES = [m.name for m in ALL_MODULE_TYPES]
 
 
-def iter_python_app_modules() -> Iterator[ndk.builds.PythonApplication]:
+def iter_python_app_modules() -> Iterator[type[ndk.builds.PythonApplication]]:
     """Returns an Iterator over all python applications."""
-    for module in ALL_MODULES:
-        if isinstance(module, ndk.builds.PythonApplication):
-            yield module
-
-
-def get_all_module_names() -> List[str]:
-    return [m.name for m in ALL_MODULES if m.enabled]
+    for module_type in ALL_MODULE_TYPES:
+        if issubclass(module_type, ndk.builds.PythonApplication):
+            yield module_type
 
 
 def build_number_arg(value: str) -> int:
@@ -2336,7 +2338,7 @@ def parse_args(
         dest="modules",
         action="append",
         default=[],
-        choices=get_all_module_names(),
+        choices=ALL_MODULE_NAMES,
         help="NDK modules to build.",
     )
 
@@ -2448,7 +2450,7 @@ def build_ndk(
     args: argparse.Namespace,
 ) -> Path:
     build_context = ndk.builds.BuildContext(
-        out_dir, dist_dir, ALL_MODULES, args.system, args.build_number
+        out_dir, dist_dir, modules, args.system, args.build_number
     )
 
     for module in modules:
@@ -2487,9 +2489,9 @@ def build_ndk(
                 "buildable: {}".format(", ".join(str(deps.get_buildable())))
             )
 
-        create_notice_file(ndk_dir / "NOTICE", ndk.builds.NoticeGroup.BASE)
+        create_notice_file(ndk_dir / "NOTICE", modules, ndk.builds.NoticeGroup.BASE)
         create_notice_file(
-            ndk_dir / "NOTICE.toolchain", ndk.builds.NoticeGroup.TOOLCHAIN
+            ndk_dir / "NOTICE.toolchain", modules, ndk.builds.NoticeGroup.TOOLCHAIN
         )
         check_ndk_symlinks(ndk_dir, args.system)
         return ndk_dir
@@ -2503,8 +2505,7 @@ def build_ndk_for_cross_compile(out_dir: Path, args: argparse.Namespace) -> None
     args.system = Host.current()
     if args.system != Host.Linux:
         raise NotImplementedError
-    module_names = NAMES_TO_MODULES.keys()
-    modules, deps_only = get_modules_to_build(module_names)
+    modules, deps_only = get_modules_to_build(ALL_MODULE_NAMES)
     print("Building Linux modules: {}".format(" ".join([str(m) for m in modules])))
     build_ndk(modules, deps_only, out_dir, out_dir, args)
 
@@ -2542,9 +2543,9 @@ async def main(argv: Sequence[str] | None = None) -> None:
 
     module_names.extend(args.modules)
     if not module_names:
-        module_names = get_all_module_names()
+        module_names = ALL_MODULE_NAMES
 
-    required_package_modules = set(get_all_module_names())
+    required_package_modules = set(ALL_MODULE_NAMES)
     have_required_modules = required_package_modules <= set(module_names)
 
     if args.package_tests is None:
