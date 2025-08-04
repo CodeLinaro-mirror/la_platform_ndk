@@ -81,9 +81,17 @@ def verbose_subprocess_errors() -> Iterator[None]:
         yield
     except subprocess.CalledProcessError as ex:
         if ex.stdout is not None:
-            ex.add_note(f"stdout:\n{ex.stdout}")
+            if isinstance(ex.stdout, bytes):
+                stdout = ex.stdout.decode("utf-8")
+            else:
+                stdout = ex.stdout
+            ex.add_note(f"stdout:\n{stdout}")
         if ex.stderr is not None:
-            ex.add_note(f"stderr:\n{ex.stderr}")
+            if isinstance(ex.stderr, bytes):
+                stderr = ex.stderr.decode("utf-8")
+            else:
+                stderr = ex.stderr
+            ex.add_note(f"stderr:\n{stderr}")
         raise
 
 
