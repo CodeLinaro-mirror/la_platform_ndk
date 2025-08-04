@@ -18,18 +18,7 @@ from __future__ import absolute_import
 
 import contextlib
 import os
-from pathlib import Path
 from typing import ContextManager, Iterator, MutableMapping
-
-
-@contextlib.contextmanager
-def cd(path: Path) -> Iterator[None]:
-    curdir = os.getcwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(curdir)
 
 
 @contextlib.contextmanager

@@ -22,9 +22,8 @@ import shlex
 import shutil
 import subprocess
 from pathlib import Path
-from typing import ContextManager, Dict, List, Optional
+from typing import Dict, List, Optional
 
-import ndk.ext.os
 import ndk.ext.subprocess
 import ndk.toolchains
 from ndk.hosts import Host, get_default_host
@@ -113,10 +112,6 @@ class AutoconfBuilder:
             flags.extend(self.additional_flags)
         return flags
 
-    def cd(self) -> ContextManager[None]:
-        """Context manager that moves into the working directory."""
-        return ndk.ext.os.cd(self.working_directory)
-
     def _run(self, cmd: List[str], extra_env: Optional[Dict[str, str]] = None) -> None:
         """Runs and logs execution of a subprocess."""
         env = dict(extra_env) if extra_env is not None else {}
@@ -139,7 +134,13 @@ class AutoconfBuilder:
             logger().debug("Running: %s", pp_cmd)
 
         with ndk.ext.subprocess.verbose_subprocess_errors():
-            subprocess.run(cmd, env=subproc_env, check=True, capture_output=True)
+            subprocess.run(
+                cmd,
+                env=subproc_env,
+                check=True,
+                cwd=self.working_directory,
+                capture_output=True,
+            )
 
     def clean(self) -> None:
         """Cleans output directory.
@@ -162,57 +163,54 @@ class AutoconfBuilder:
                 include --prefix, --build, or --host. Those are set up
                 automatically.
         """
-        with self.cd():
-            build_host_args: List[str]
-            if self.no_build_or_host:
-                build_host_args = []
-            else:
-                build_triple = HOST_TRIPLE_MAP[get_default_host()]
-                host_triple = HOST_TRIPLE_MAP[self.host]
-                build_host_args = [
-                    f"--build={build_triple}",
-                    f"--host={host_triple}",
-                ]
+        build_host_args: List[str]
+        if self.no_build_or_host:
+            build_host_args = []
+        else:
+            build_triple = HOST_TRIPLE_MAP[get_default_host()]
+            host_triple = HOST_TRIPLE_MAP[self.host]
+            build_host_args = [
+                f"--build={build_triple}",
+                f"--host={host_triple}",
+            ]
 
-            configure_args = (
-                [
-                    str(self.configure_script),
-                    f"--prefix={self.install_directory}",
-                ]
-                + build_host_args
-                + args
-            )
+        configure_args = (
+            [
+                str(self.configure_script),
+                f"--prefix={self.install_directory}",
+            ]
+            + build_host_args
+            + args
+        )
 
-            flags_str = " ".join(self.toolchain.flags + self.flags)
-            cc = f"{self.toolchain.cc} {flags_str}"
-            cxx = f"{self.toolchain.cxx} -stdlib=libc++ {flags_str}"
+        flags_str = " ".join(self.toolchain.flags + self.flags)
+        cc = f"{self.toolchain.cc} {flags_str}"
+        cxx = f"{self.toolchain.cxx} -stdlib=libc++ {flags_str}"
 
-            configure_env: Dict[str, str] = {
-                "CC": cc,
-                "CXX": cxx,
-                "LD": str(self.toolchain.ld),
-                "AR": str(self.toolchain.ar),
-                "AS": str(self.toolchain.asm),
-                "RANLIB": str(self.toolchain.ranlib),
-                "NM": str(self.toolchain.nm),
-                "STRIP": str(self.toolchain.strip),
-                "STRINGS": str(self.toolchain.strings),
-            }
-            if self.host.is_windows:
-                configure_env["WINDRES"] = str(self.toolchain.rescomp)
-                configure_env["RESCOMP"] = str(self.toolchain.rescomp)
+        configure_env: Dict[str, str] = {
+            "CC": cc,
+            "CXX": cxx,
+            "LD": str(self.toolchain.ld),
+            "AR": str(self.toolchain.ar),
+            "AS": str(self.toolchain.asm),
+            "RANLIB": str(self.toolchain.ranlib),
+            "NM": str(self.toolchain.nm),
+            "STRIP": str(self.toolchain.strip),
+            "STRINGS": str(self.toolchain.strings),
+        }
+        if self.host.is_windows:
+            configure_env["WINDRES"] = str(self.toolchain.rescomp)
+            configure_env["RESCOMP"] = str(self.toolchain.rescomp)
 
-            self._run(configure_args, configure_env)
+        self._run(configure_args, configure_env)
 
     def make(self) -> None:
         """Builds the project."""
-        with self.cd():
-            self._run(["make", self.jobs_arg])
+        self._run(["make", self.jobs_arg])
 
     def install(self) -> None:
         """Installs the project."""
-        with self.cd():
-            self._run(["make", self.jobs_arg, "install"])
+        self._run(["make", self.jobs_arg, "install"])
 
     def build(self, configure_args: Optional[List[str]] = None) -> None:
         """Configures and builds an autoconf project.
