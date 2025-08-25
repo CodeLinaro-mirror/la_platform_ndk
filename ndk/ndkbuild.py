@@ -18,6 +18,7 @@ from __future__ import absolute_import
 
 import multiprocessing
 import os
+import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -56,4 +57,10 @@ async def build(
     if flags is not None:
         args.extend(flags)
 
-    return await async_run(args, check=False, cwd=project_path, capture_output=True)
+    return await async_run(
+        args,
+        check=False,
+        cwd=project_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )

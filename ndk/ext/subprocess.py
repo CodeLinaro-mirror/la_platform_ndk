@@ -23,6 +23,7 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Sequence, Tuple
 
@@ -101,11 +102,15 @@ async def async_run(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     capture_output: bool = False,
+    stdout: BytesIO | int | None = None,
+    stderr: BytesIO | int | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     """Runs and logs an asyncio subprocess."""
-    stdout = None
-    stderr = None
     if capture_output:
+        if stdout is not None or stderr is not None:
+            raise ValueError(
+                "capture_output cannot be used when either stdout or stderr is set"
+            )
         stdout = subprocess.PIPE
         stderr = subprocess.PIPE
     logger().debug("exec CWD=%s %s", cwd or Path.cwd(), shlex.join(str(a) for a in cmd))

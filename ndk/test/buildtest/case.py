@@ -22,13 +22,13 @@ import multiprocessing
 import os
 import shlex
 import shutil
+import subprocess
 from abc import ABC, abstractmethod
 from importlib.abc import Loader
 from pathlib import Path
 from subprocess import CompletedProcess
 from typing import List, Optional
 
-import ndk.ext.os
 import ndk.ndkbuild
 import ndk.paths
 from ndk.abis import Abi
@@ -498,7 +498,10 @@ async def _run_cmake_build_test(
     else:
         args.append("-DANDROID_USE_LEGACY_TOOLCHAIN_FILE=OFF")
     proc = await async_run(
-        [str(cmake_bin)] + args + cmake_flags, check=False, capture_output=True
+        [str(cmake_bin)] + args + cmake_flags,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
     if proc.returncode != 0:
         return proc
