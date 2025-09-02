@@ -3,7 +3,7 @@ from __future__ import print_function
 major = 29
 hotfix = 0
 hotfix_str = chr(ord("a") + hotfix) if hotfix else ""
-beta = 3
+beta = 4
 beta_str = "-beta{}".format(beta) if beta > 0 else ""
 canary = False
 canary_str = "-canary" if canary else ""
