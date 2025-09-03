@@ -430,9 +430,6 @@ class Clang(ndk.builds.Module):
                 bin_dir / "clang-tidy-real",
                 bin_dir / "clang++-real",
             }
-            (bin_dir / "clang.real").unlink()
-            (bin_dir / "clang-tidy.real").unlink()
-            (bin_dir / "clang++.real").unlink()
             (bin_dir / "clang++-real").unlink()
             (bin_dir / "clang++").unlink()
             (bin_dir / "clang-cl").unlink()
