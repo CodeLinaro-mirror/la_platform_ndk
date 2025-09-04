@@ -67,17 +67,17 @@ KOKORO_PREBUILTS: dict[str, KokoroPrebuilt] = {
     "ndk/cmake/linux_release": KokoroPrebuilt(
         title="Linux CMake",
         extract_path="prebuilts/cmake/linux-x86",
-        artifact_glob="cmake-linux-*-{build_id}.zip",
+        artifact_glob="cmake.zip",
     ),
     "ndk/cmake/darwin_release": KokoroPrebuilt(
         title="Darwin CMake",
         extract_path="prebuilts/cmake/darwin-x86",
-        artifact_glob="cmake-darwin-*-{build_id}.zip",
+        artifact_glob="cmake.zip",
     ),
     "ndk/cmake/windows_release": KokoroPrebuilt(
         title="Windows CMake",
         extract_path="prebuilts/cmake/windows-x86",
-        artifact_glob="cmake-windows-*-{build_id}.zip",
+        artifact_glob="cmake.zip",
     ),
     "ndk/ninja/linux_release": KokoroPrebuilt(
         title="Linux Ninja",
