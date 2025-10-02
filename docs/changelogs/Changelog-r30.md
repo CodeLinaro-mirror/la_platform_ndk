@@ -18,3 +18,9 @@ directly, see the [build system maintainers guide].
 
 - Updated LLVM to clang-r574158. See `clang_source_info.md` in the toolchain
   directory for version information.
+  - [Issue 2073]: Fixed runtime segfault when using LTO and nested exception
+    handlers.
+  - [Issue 2160]: Fix Clang crash on invalid code.
+
+[Issue 2073]: https://github.com/android/ndk/issues/2073
+[Issue 2160]: https://github.com/android/ndk/issues/2160
