@@ -28,11 +28,11 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Sequence
 
-from aiohttp import ClientSession
-
-from ndk.fetchartifact import fetch_artifact_chunked
+from ndk.ext.subprocess import async_run
 from ndk.paths import ANDROID_DIR
 from ndk.platforms import API_LEVEL_ALIASES, MAX_API_LEVEL, MIN_API_LEVEL
+
+FETCH_ARTIFACT = Path("/google/data/ro/projects/android/fetch_artifact")
 
 
 def logger() -> logging.Logger:
@@ -75,11 +75,16 @@ async def fetch_artifact(target: str, build_id: str, name: str) -> None:
 
     The downloaded artifact will be written to the current working directory.
     """
+    if not FETCH_ARTIFACT.exists():
+        raise RuntimeError(
+            f"{FETCH_ARTIFACT} does not exist. update-sysoot can only be run on gLinux "
+            "machines."
+        )
     destination = Path(name)
-    async with ClientSession() as session:
-        with destination.open("wb") as output:
-            async for chunk in fetch_artifact_chunked(target, build_id, name, session):
-                output.write(chunk)
+    await async_run(
+        [str(FETCH_ARTIFACT), "--bid", build_id, "--target", target, name, destination],
+        check=True,
+    )
 
 
 def remove_platform_if_out_of_range(version: int, path: Path) -> None:
