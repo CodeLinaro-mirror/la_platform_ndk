@@ -101,18 +101,25 @@ def remove_platform_if_out_of_range(version: int, path: Path) -> None:
 
 def rename_platform(version: str, path: Path) -> None:
     new_name = API_LEVEL_ALIASES[version]
-    new_name_path = path.with_name(str(new_name))
+    rename_platform_to(path, path.with_name(str(new_name)))
 
-    if new_name_path.exists():
+
+def rename_platform_to(path: Path, new_path: Path) -> None:
+    if new_path.exists():
         raise RuntimeError(
-            f"Could not rename {path} to {new_name_path} because it already exists."
+            f"Could not rename {path} to {new_path} because it already exists."
         )
 
-    rename(path, new_name_path)
+    rename(path, new_path)
 
 
 def remove_or_rename_codename_if_unknown(version: str, path: Path) -> None:
-    if version not in API_LEVEL_ALIASES:
+    if version == "current" and path.parent.name == "riscv64-linux-android":
+        # Special case for the currently unsupported ABI. The libraries for riscv64 are
+        # only produced for "current", but the NDK doesn't use codenames, so we install
+        # that as if it were the latest API level.
+        rename_platform_to(path, path.with_name(str(MAX_API_LEVEL)))
+    elif version not in API_LEVEL_ALIASES:
         logger().info(
             "Removing %s from %s because it is not a known codename", version, path
         )
