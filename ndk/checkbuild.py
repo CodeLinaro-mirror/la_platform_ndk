@@ -56,7 +56,7 @@ from ndk.abis import ALL_ABIS, Abi
 from ndk.crtobjectbuilder import CrtObjectBuilder
 from ndk.hosts import Host
 from ndk.paths import ANDROID_DIR, NDK_DIR, PREBUILT_SYSROOT
-from ndk.platforms import ALL_API_LEVELS, API_LEVEL_ALIASES, MAX_API_LEVEL
+from ndk.platforms import ALL_API_LEVELS, MAX_API_LEVEL
 from ndk.toolchains import CLANG_VERSION, ClangToolchain
 
 from .buildtasklimiter import BuildTaskLimiter
@@ -1913,11 +1913,6 @@ class Meta(ndk.builds.PackageModule):
             raise RuntimeError(
                 f"API {max_sysroot_api} is the newest API level in {PREBUILT_SYSROOT} "
                 f"sysroot but does not match meta/platforms.json max of {MAX_API_LEVEL}"
-            )
-        if max_sysroot_api not in API_LEVEL_ALIASES.values():
-            raise RuntimeError(
-                f"API {max_sysroot_api} is the newest API level in {PREBUILT_SYSROOT} "
-                "but has no alias in meta/platforms.json."
             )
 
     def install(self) -> None:
