@@ -21,6 +21,7 @@ import subprocess
 from pathlib import Path
 
 import ndk.config
+import ndk.ext.subprocess
 from ndk.platforms import ALL_API_LEVELS, MAX_API_LEVEL
 
 from .abis import Abi, abi_to_triple, clang_target, iter_abis_for_api
@@ -76,7 +77,7 @@ class CrtObjectBuilder:
         ]
 
         logger().debug("Running: %s", shlex.join(cc_args))
-        subprocess.check_call(cc_args)
+        subprocess.run(cc_args, check=True, capture_output=True)
 
     def strip_platform_brand(self, dest: Path, obj_to_strip: Path) -> None:
         strip_args = [
@@ -89,7 +90,7 @@ class CrtObjectBuilder:
         ]
 
         logger().debug("Running: %s", shlex.join(strip_args))
-        subprocess.check_call(strip_args)
+        subprocess.run(strip_args, check=True, capture_output=True)
 
     def brand_object(self, dest: Path, obj_to_brand: Path, crtbrand_o: Path) -> None:
         ld_args = [
@@ -102,7 +103,7 @@ class CrtObjectBuilder:
         ]
 
         logger().debug("Running: %s", shlex.join(ld_args))
-        subprocess.check_call(ld_args)
+        subprocess.run(ld_args, check=True, capture_output=True)
 
     def build_crt_objects(
         self,
@@ -142,8 +143,9 @@ class CrtObjectBuilder:
         if self.build_dir.exists():
             shutil.rmtree(self.build_dir)
 
-        for api in ALL_API_LEVELS:
-            for abi in iter_abis_for_api(api):
-                dst_dir = self.build_dir / abi_to_triple(abi) / str(api)
-                dst_dir.mkdir(parents=True, exist_ok=True)
-                self.build_crt_objects(dst_dir, api, abi, self.build_id)
+        with ndk.ext.subprocess.verbose_subprocess_errors():
+            for api in ALL_API_LEVELS:
+                for abi in iter_abis_for_api(api):
+                    dst_dir = self.build_dir / abi_to_triple(abi) / str(api)
+                    dst_dir.mkdir(parents=True, exist_ok=True)
+                    self.build_crt_objects(dst_dir, api, abi, self.build_id)
