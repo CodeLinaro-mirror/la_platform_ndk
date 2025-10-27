@@ -66,7 +66,9 @@ try:
         def on_task_finished(self, result: TestResult) -> None:
             if self.log_all_results or result.failed():
                 self.progress.console.print(
-                    result.to_string(colored=True, text_colorer=rich_text_colorer)
+                    result.to_string(
+                        colored=True, text_colorer=rich_text_colorer, escape=escape
+                    )
                 )
             self.progress.advance(self.task_id)
 

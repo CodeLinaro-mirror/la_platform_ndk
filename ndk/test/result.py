@@ -24,6 +24,7 @@ import ndk.termcolor
 Test = Any
 
 TextColorer: TypeAlias = Callable[[str, str, bool], str]
+TextEscaper: TypeAlias = Callable[[str], str]
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ class TestResult:
         tr: ResultTranslations = ResultTranslations(),
         colored: bool = False,
         text_colorer: TextColorer = ndk.termcolor.maybe_color,
+        escape: TextEscaper = lambda s: s,
     ) -> str:
         raise NotImplementedError
 
@@ -89,10 +91,14 @@ class Failure(TestResult, Generic[UserDataT]):
         tr: ResultTranslations = ResultTranslations(),
         colored: bool = False,
         text_colorer: TextColorer = ndk.termcolor.maybe_color,
+        escape: TextEscaper = lambda s: s,
     ) -> str:
         label = text_colorer(tr.failure, "red", colored)
         repro = f" {self.repro_cmd}" if self.repro_cmd else ""
-        return f"{label} {self.test}:{repro}\n" f"{self.message}"
+        return (
+            f"{label} {escape(str(self.test))}:{escape(repro)}\n"
+            f"{escape(self.message)}"
+        )
 
 
 class Success(TestResult):
@@ -107,9 +113,10 @@ class Success(TestResult):
         tr: ResultTranslations = ResultTranslations(),
         colored: bool = False,
         text_colorer: TextColorer = ndk.termcolor.maybe_color,
+        escape: TextEscaper = lambda s: s,
     ) -> str:
         label = text_colorer(tr.success, "green", colored)
-        return f"{label} {self.test}"
+        return f"{label} {escape(str(self.test))}"
 
 
 class Skipped(TestResult):
@@ -128,9 +135,10 @@ class Skipped(TestResult):
         tr: ResultTranslations = ResultTranslations(),
         colored: bool = False,
         text_colorer: TextColorer = ndk.termcolor.maybe_color,
+        escape: TextEscaper = lambda s: s,
     ) -> str:
         label = text_colorer(tr.skip, "yellow", colored)
-        return f"{label} {self.test}: {self.reason}"
+        return f"{label} {escape(str(self.test))}: {self.reason}"
 
 
 class ExpectedFailure(TestResult):
@@ -151,10 +159,11 @@ class ExpectedFailure(TestResult):
         tr: ResultTranslations = ResultTranslations(),
         colored: bool = False,
         text_colorer: TextColorer = ndk.termcolor.maybe_color,
+        escape: TextEscaper = lambda s: s,
     ) -> str:
         label = text_colorer(tr.expected_failure, "yellow", colored)
         return (
-            f"{label} {self.test}: known failure "
+            f"{label} {escape(str(self.test))}: known failure "
             f"for {self.broken_config} ({self.bug}): {self.message}"
         )
 
@@ -176,9 +185,10 @@ class UnexpectedSuccess(TestResult):
         tr: ResultTranslations = ResultTranslations(),
         colored: bool = False,
         text_colorer: TextColorer = ndk.termcolor.maybe_color,
+        escape: TextEscaper = lambda s: s,
     ) -> str:
         label = text_colorer(tr.unexpected_success, "red", colored)
         return (
-            f"{label} {self.test}: "
+            f"{label} {escape(str(self.test))}: "
             f"unexpected success for {self.broken_config} ({self.bug})"
         )
