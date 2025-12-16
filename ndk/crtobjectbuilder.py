@@ -82,7 +82,27 @@ class CrtObjectBuilder:
     def strip_platform_brand(self, dest: Path, obj_to_strip: Path) -> None:
         strip_args = [
             str(self.llvm_tool("llvm-strip")),
-            "--no-strip-all",
+            # The platform build defaults to DWARF 5 even though Clang doesn't
+            # for Android targets. This means that the CRT objects we get from
+            # the sysroot have DWARF 5 debug info even though app code will be
+            # built with DWARF 4. Studio's APK debugger isn't capable of
+            # processing DWARF 5 and will discard the entire library if it
+            # encounters any DWARF 5 info in the library. Studio should be fixed so we
+            # can adopt DWARF 5, but for now, just strip the debug info from the CRT
+            # objects. It's probably not all that useful anyway.
+            #
+            # Note: this currently only strips crtbegin variants, not crtend,
+            # because this function is only ever called on crtbegin because
+            # those are the objects that get branded. That's okay because the
+            # crtend objects don't have debug info anyway. If crtend gains any
+            # debug info before Studio is fixed, this workaround will need to be
+            # altered to strip all the CRT objects and not just crtbegin.
+            #
+            # When this is later resolved, --strip-debug should be replaced here
+            # by --no-strip-all.
+            #
+            # http://b/465649511
+            "--strip-debug",
             "--remove-section=.note.android.ident",
             "-o",
             str(dest),
