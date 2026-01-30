@@ -82,32 +82,32 @@ KOKORO_PREBUILTS: dict[str, KokoroPrebuilt] = {
     "ndk/ninja/linux_release": KokoroPrebuilt(
         title="Linux Ninja",
         extract_path="prebuilts/ninja/linux-x86",
-        artifact_glob="ninja-linux-{build_id}.zip",
+        artifact_glob="ninja-linux-x86-{build_id}.zip",
     ),
     "ndk/ninja/darwin_release": KokoroPrebuilt(
         title="Darwin Ninja",
         extract_path="prebuilts/ninja/darwin-x86",
-        artifact_glob="ninja-darwin-{build_id}.zip",
+        artifact_glob="ninja-darwin-x86-{build_id}.zip",
     ),
     "ndk/ninja/windows_release": KokoroPrebuilt(
         title="Windows Ninja",
         extract_path="prebuilts/ninja/windows-x86",
-        artifact_glob="ninja-windows-{build_id}.zip",
+        artifact_glob="ninja-windows-x86-{build_id}.zip",
     ),
     "ndk/python3/linux_release": KokoroPrebuilt(
         title="Linux Python3",
         extract_path="prebuilts/python/linux-x86",
-        artifact_glob="python3-linux-{build_id}.tar.bz2",
+        artifact_glob="python3-linux-x86-{build_id}.tar.bz2",
     ),
     "ndk/python3/darwin_release": KokoroPrebuilt(
         title="Darwin Python3",
         extract_path="prebuilts/python/darwin-x86",
-        artifact_glob="python3-darwin-{build_id}.tar.bz2",
+        artifact_glob="python3-darwin-x86-{build_id}.tar.bz2",
     ),
     "ndk/python3/windows_release": KokoroPrebuilt(
         title="Windows Python3",
         extract_path="prebuilts/python/windows-x86",
-        artifact_glob="python3-windows-{build_id}.zip",
+        artifact_glob="python3-windows-x86-{build_id}.zip",
     ),
 }
 
