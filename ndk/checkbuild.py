@@ -766,10 +766,16 @@ class ShaderTools(ndk.builds.CMakeModule):
 
     @property
     def env(self) -> Dict[str, str]:
+        env = {}
+        # Set path to include a directory that symlinks objdump to llvm_objdump
+        paths = [str(self.objdump_path_dir)]
+        paths.append(os.environ["PATH"])
+        env["PATH"] = os.pathsep.join(paths)
+
         # Sets path for libc++, for ctest.
         if self.host == Host.Linux:
-            return {"LD_LIBRARY_PATH": str(self._libcxx_dir)}
-        return {}
+            env["LD_LIBRARY_PATH"] = str(self._libcxx_dir)
+        return env
 
     @property
     def _libcxx_dir(self) -> Path:
@@ -782,7 +788,21 @@ class ShaderTools(ndk.builds.CMakeModule):
             return [path / "libc++.so"]
         return []
 
+    @property
+    def objdump_path_dir(self) -> Path:
+        return self.intermediate_out_dir / "objdump"
+
     def build(self) -> None:
+        # The shader-tools tests assume objdump is available.  Create a directory that
+        # contains a symlink to llvm-objdump.  The directory was added to the PATH
+        # in env().
+        if self.objdump_path_dir.exists():
+            shutil.rmtree(self.objdump_path_dir)
+        self.objdump_path_dir.mkdir(parents=True)
+        objdump = self.objdump_path_dir / "objdump"
+        llvm_objdump = self.get_dep("clang").get_build_host_install() / "bin/llvm-objdump"
+        make_symlink(objdump, llvm_objdump)
+
         # These have never behaved properly on Darwin. Local builds haven't worked in
         # years (presumably an XCode difference), and now CI is failing because of the
         # same libc++ mismatch as in

@@ -213,12 +213,13 @@ class CMakeBuilder:
     def clean(self) -> None:
         """Cleans output directory.
 
-        If necessary, existing output directory will be removed. After
-        removal, the inner directories (working directory, install directory,
-        and toolchain directory) will be created.
+        If necessary, existing working and install directories will be removed,
+        and then empty directories created.
         """
-        if self.build_directory.exists():
-            shutil.rmtree(self.build_directory)
+        if self.working_directory.exists():
+            shutil.rmtree(self.working_directory)
+        if self.install_directory.exists():
+            shutil.rmtree(self.install_directory)
 
         self.working_directory.mkdir(parents=True)
         self.install_directory.mkdir(parents=True)
