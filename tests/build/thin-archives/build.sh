@@ -6,19 +6,19 @@ if [ $? != 0 ]; then
   exit 1
 fi
 
-# Return the type of a given file as returned by /usr/bin/file
+# Return the type of a given file as returned by `file`
 # $1: file path
 get_file_type () {
-    /usr/bin/file -b "$1" 2>/dev/null
+    file -b "$1" 2>/dev/null
 }
 
 # Returns success iff a given file is a thin archive.
 # $1: file type as returned by get_file_type()
 is_file_type_thin_archive () {
-  # The output of /usr/bin/file will depend on the OS:
+  # The output of `file` will depend on the OS:
   # regular Linux -> 'current ar archive'
   # regular Darwin -> 'current ar archive random library'
-  # thin Linux -> 'data'
+  # thin Linux -> 'data' or 'thin archive with 1 symbol entry'
   # thin Darwin -> 'data'
   case "$1" in
     *"ar archive"*)
@@ -31,7 +31,7 @@ is_file_type_thin_archive () {
       return 0
       ;;
     *)
-      echo "ERROR: Unknown '$FILE_TYPE' file type" >&2
+      echo "ERROR: Unknown '$1' file type" >&2
       return 2
       ;;
   esac
