@@ -11,4 +11,5 @@ fi
 
 ENTRY_POINT=$THIS_DIR/ci.py
 PYTHON_PATH=$(dirname $THIS_DIR)/prebuilts/python/$HOST/bin/python3
+export PYTHONDONTWRITEBYTECODE=1
 $PYTHON_PATH $ENTRY_POINT "$@"
