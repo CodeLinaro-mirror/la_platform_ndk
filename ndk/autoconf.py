@@ -87,6 +87,7 @@ class AutoconfBuilder:
         self.install_directory = self.build_directory / "install"
 
         self.toolchain = ndk.toolchains.ClangToolchain(self.host)
+        self.build_toolchain = ndk.toolchains.ClangToolchain(get_default_host())
 
     @property
     def flags(self) -> List[str]:
@@ -133,6 +134,7 @@ class AutoconfBuilder:
         else:
             logger().debug("Running: %s", pp_cmd)
 
+        print(self.working_directory, cmd, subproc_env)
         with ndk.ext.subprocess.verbose_subprocess_errors():
             subprocess.run(
                 cmd,
@@ -187,6 +189,9 @@ class AutoconfBuilder:
         cc = f"{self.toolchain.cc} {flags_str}"
         cxx = f"{self.toolchain.cxx} -stdlib=libc++ {flags_str}"
 
+        build_flags_str = " ".join(self.build_toolchain.flags)
+        build_cc = f"{self.build_toolchain.cc} {build_flags_str}"
+
         configure_env: Dict[str, str] = {
             "CC": cc,
             "CXX": cxx,
@@ -197,6 +202,8 @@ class AutoconfBuilder:
             "NM": str(self.toolchain.nm),
             "STRIP": str(self.toolchain.strip),
             "STRINGS": str(self.toolchain.strings),
+            "CC_FOR_BUILD": build_cc,
+            "CCLD_FOR_BUILD": build_cc,
         }
         if self.host.is_windows:
             configure_env["WINDRES"] = str(self.toolchain.rescomp)
