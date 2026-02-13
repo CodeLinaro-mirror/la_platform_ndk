@@ -69,6 +69,11 @@ KOKORO_PREBUILTS: dict[str, KokoroPrebuilt] = {
         extract_path="prebuilts/cmake/linux-x86",
         artifact_glob="cmake.zip",
     ),
+    "ndk/cmake/linux-arm64_release": KokoroPrebuilt(
+        title="Linux Arm64 CMake",
+        extract_path="prebuilts/cmake/linux-arm64",
+        artifact_glob="cmake.zip",
+    ),
     "ndk/cmake/darwin_release": KokoroPrebuilt(
         title="Darwin CMake",
         extract_path="prebuilts/cmake/darwin-x86",
@@ -84,6 +89,11 @@ KOKORO_PREBUILTS: dict[str, KokoroPrebuilt] = {
         extract_path="prebuilts/ninja/linux-x86",
         artifact_glob="ninja-linux-x86-{build_id}.zip",
     ),
+    "ndk/ninja/linux-arm64_release": KokoroPrebuilt(
+        title="Linux Arm64 Ninja",
+        extract_path="prebuilts/ninja/linux-arm64",
+        artifact_glob="ninja-linux-arm64-{build_id}.zip",
+    ),
     "ndk/ninja/darwin_release": KokoroPrebuilt(
         title="Darwin Ninja",
         extract_path="prebuilts/ninja/darwin-x86",
@@ -98,6 +108,11 @@ KOKORO_PREBUILTS: dict[str, KokoroPrebuilt] = {
         title="Linux Python3",
         extract_path="prebuilts/python/linux-x86",
         artifact_glob="python3-linux-x86-{build_id}.tar.bz2",
+    ),
+    "ndk/python3/linux-arm64_release": KokoroPrebuilt(
+        title="Linux Arm64 Python3",
+        extract_path="prebuilts/python/linux-arm64",
+        artifact_glob="python3-linux-arm64-{build_id}.tar.bz2",
     ),
     "ndk/python3/darwin_release": KokoroPrebuilt(
         title="Darwin Python3",
@@ -191,6 +206,7 @@ class BuildStatus:
     gcs_path: str
     # name -> sha. (e.g. 'external/cmake' -> '86d651ddf5a1ca0ec3e4823bda800b0cea32d253')
     repos: dict[str, str]
+    manifest: Path
 
 
 def parse_manifest_repos(manifest_path: Path) -> dict[str, str]:
@@ -259,9 +275,10 @@ def get_build_status(
 
     result = []
     for bid in build_id_list:
-        repos = parse_manifest_repos(tmp_dir / f"manifest-{bid}.xml")
+        manifest = tmp_dir / f"manifest-{bid}.xml"
+        repos = parse_manifest_repos(manifest)
         result.append(
-            BuildStatus(ls_info[bid].job_name, bid, ls_info[bid].gcs_path, repos)
+            BuildStatus(ls_info[bid].job_name, bid, ls_info[bid].gcs_path, repos, manifest)
         )
     return result
 
@@ -372,6 +389,9 @@ def update_artifact(
         check_call(["unzip", "-q", str(archive_path)])
     else:
         sys.exit(f"error: unrecognized type of archive: {archive_path}")
+
+    shutil.copy2(build.manifest, dest_path / "manifest.xml")
+
     # Pass -f so that files from the archive are added even if they are listed
     # in .gitignore.
     check_call(["git", "add", "-f", "."])
