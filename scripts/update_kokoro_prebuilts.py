@@ -191,6 +191,7 @@ class BuildStatus:
     gcs_path: str
     # name -> sha. (e.g. 'external/cmake' -> '86d651ddf5a1ca0ec3e4823bda800b0cea32d253')
     repos: dict[str, str]
+    manifest: Path
 
 
 def parse_manifest_repos(manifest_path: Path) -> dict[str, str]:
@@ -259,9 +260,10 @@ def get_build_status(
 
     result = []
     for bid in build_id_list:
-        repos = parse_manifest_repos(tmp_dir / f"manifest-{bid}.xml")
+        manifest = tmp_dir / f"manifest-{bid}.xml"
+        repos = parse_manifest_repos(manifest)
         result.append(
-            BuildStatus(ls_info[bid].job_name, bid, ls_info[bid].gcs_path, repos)
+            BuildStatus(ls_info[bid].job_name, bid, ls_info[bid].gcs_path, repos, manifest)
         )
     return result
 
@@ -372,6 +374,9 @@ def update_artifact(
         check_call(["unzip", "-q", str(archive_path)])
     else:
         sys.exit(f"error: unrecognized type of archive: {archive_path}")
+
+    shutil.copy2(build.manifest, dest_path / "manifest.xml")
+
     # Pass -f so that files from the archive are added even if they are listed
     # in .gitignore.
     check_call(["git", "add", "-f", "."])
