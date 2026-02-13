@@ -69,6 +69,11 @@ KOKORO_PREBUILTS: dict[str, KokoroPrebuilt] = {
         extract_path="prebuilts/cmake/linux-x86",
         artifact_glob="cmake.zip",
     ),
+    "ndk/cmake/linux-arm64_release": KokoroPrebuilt(
+        title="Linux Arm64 CMake",
+        extract_path="prebuilts/cmake/linux-arm64",
+        artifact_glob="cmake.zip",
+    ),
     "ndk/cmake/darwin_release": KokoroPrebuilt(
         title="Darwin CMake",
         extract_path="prebuilts/cmake/darwin-x86",
@@ -84,6 +89,11 @@ KOKORO_PREBUILTS: dict[str, KokoroPrebuilt] = {
         extract_path="prebuilts/ninja/linux-x86",
         artifact_glob="ninja-linux-x86-{build_id}.zip",
     ),
+    "ndk/ninja/linux-arm64_release": KokoroPrebuilt(
+        title="Linux Arm64 Ninja",
+        extract_path="prebuilts/ninja/linux-arm64",
+        artifact_glob="ninja-linux-arm64-{build_id}.zip",
+    ),
     "ndk/ninja/darwin_release": KokoroPrebuilt(
         title="Darwin Ninja",
         extract_path="prebuilts/ninja/darwin-x86",
@@ -98,6 +108,11 @@ KOKORO_PREBUILTS: dict[str, KokoroPrebuilt] = {
         title="Linux Python3",
         extract_path="prebuilts/python/linux-x86",
         artifact_glob="python3-linux-x86-{build_id}.tar.bz2",
+    ),
+    "ndk/python3/linux-arm64_release": KokoroPrebuilt(
+        title="Linux Arm64 Python3",
+        extract_path="prebuilts/python/linux-arm64",
+        artifact_glob="python3-linux-arm64-{build_id}.tar.bz2",
     ),
     "ndk/python3/darwin_release": KokoroPrebuilt(
         title="Darwin Python3",
