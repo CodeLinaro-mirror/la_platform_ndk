@@ -324,6 +324,14 @@ class ClangToolchain(Toolchain):
         if self.target == Host.Darwin:
             flags.extend(self.darwin_sdk.flags)
             flags.append(f"-L{self.path}/lib")
+
+            # While we build against the toolchain's libc++.dylib, the NDK
+            # darwin binaries use the system libc++ at runtime. Something's
+            # changed in the build and these binaries (e.g. glslc) are not able
+            # to load the system libc++.dylib. Revert to the status quo by
+            # adding an LC_RPATH entry pointing to /usr/lib using
+            # `-Wl,-rpath,/usr/lib`.
+            flags.append("-Wl,-rpath,/usr/lib")
         else:
             flags.append(f"--sysroot={self.sysroot.sysroot}")
 
