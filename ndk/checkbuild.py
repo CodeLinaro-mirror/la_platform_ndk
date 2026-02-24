@@ -607,6 +607,33 @@ class Clang(ndk.builds.Module):
             if lib.name in broken_symlinks:
                 self._check_and_remove_dangling_symlink(lib)
 
+        self.fix_lldb_libpython()
+
+    def fix_lldb_libpython(self) -> None:
+        """Copies the Python dylib from Python to LLVM.
+
+        Our toolchain ships an lldb.sh that sets the PYTHON_HOME and library load path
+        before running lldb itself. On macOS, using DYLD_LIBRARY_PATH doesn't work for
+        signed binaries, so this isn't enough and we need to copy the library from the
+        Python library directory to the toolchain's.
+
+        https://github.com/android/ndk/issues/2143
+        """
+        if self.host is not Host.Darwin:
+            return
+
+        install_path = self.get_install_path()
+        python_lib_dir = install_path / "python3/lib"
+        python_libs = list(python_lib_dir.glob("libpython3.*.dylib"))
+        if len(python_libs) != 1:
+            raise RuntimeError(
+                f"Expected exactly one Python library in {python_lib_dir}, found:"
+                "\n" + "\n".join(str(p) for p in python_libs)
+            )
+        libpython = python_libs[0]
+        toolchain_libdir = install_path / "lib"
+        shutil.copy2(libpython, toolchain_libdir)
+
     @staticmethod
     def cleanup_clang_lib_dir(path: Path) -> None:
         """Removes all the unused library directories from lib/clang.
