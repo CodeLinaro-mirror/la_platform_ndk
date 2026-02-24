@@ -14,6 +14,12 @@ directly, see the [build system maintainers guide].
 
 ## Announcements
 
+## r29b
+
+- [Issue 2143]: Fixed lldb.sh not finding libpython on macOS.
+
+[Issue 2143]: https://github.com/android/ndk/issues/2143
+
 ## Changes
 
 - Updated LLVM to clang-r563880c. See `clang_source_info.md` in the toolchain
