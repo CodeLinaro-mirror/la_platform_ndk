@@ -122,7 +122,7 @@ KOKORO_PREBUILTS: dict[str, KokoroPrebuilt] = {
     "ndk/python3/windows_release": KokoroPrebuilt(
         title="Windows Python3",
         extract_path="prebuilts/python/windows-x86",
-        artifact_glob="python3-windows-x86-{build_id}.zip",
+        artifact_glob="python3-windows-{build_id}.zip",
     ),
 }
 
@@ -347,19 +347,16 @@ def download_artifacts(
     """Download each build's artifact.
 
     Return a list of absolute paths."""
-    patterns = []
+    artifacts = []
     for build in builds:
         prebuilt = KOKORO_PREBUILTS[build.job_name]
-        patterns.append(
-            build.gcs_path
-            + "/"
-            + prebuilt.artifact_glob.format(build_id=build.build_id)
-        )
+        src = build.gcs_path + "/" + prebuilt.artifact_glob.format(build_id=build.build_id)
+        dest = tmp_dir / str(build.build_id)
+        makedirs(dest)
+        check_call([gsutil_cmd, "-m", "cp", src, str(dest)])
 
-    check_call([gsutil_cmd, "-m", "cp"] + patterns + [str(tmp_dir)])
-    artifacts = []
-    for pattern in patterns:
-        (artifact,) = glob.glob(str(tmp_dir / os.path.basename(pattern)))
+        print(dest, os.path.basename(src))
+        (artifact,) = dest.glob(os.path.basename(src))
         artifacts.append(Path(artifact))
 
     return artifacts
