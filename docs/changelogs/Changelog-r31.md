@@ -15,3 +15,5 @@ directly, see the [build system maintainers guide].
 ## Announcements
 
 ## Changes
+
+- Removed shaderc from the NDK.
