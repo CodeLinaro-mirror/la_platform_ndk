@@ -27,6 +27,7 @@ import inspect
 import json
 import logging
 import os
+import platform
 import shutil
 import stat
 import sys
@@ -82,7 +83,10 @@ def arch_to_abi(arch: str) -> str:
 def get_host_tag_or_die():
     """Return the host tag for this platform. Die if not supported."""
     if sys.platform.startswith("linux"):
-        return "linux-x86_64"
+        if platform.machine() == "aarch64":
+            return "linux-arm64"
+        else:
+            return "linux-x86_64"
     elif sys.platform == "darwin":
         return "darwin-x86_64"
     elif sys.platform == "win32" or sys.platform == "cygwin":

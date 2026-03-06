@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import enum
+import platform
 import sys
 
 
@@ -26,6 +27,7 @@ class Host(enum.Enum):
 
     Darwin = "darwin"
     Linux = "linux"
+    LinuxArm64 = "linux-arm64"
     # TODO: Just Windows now that we only have the one.
     Windows64 = "windows64"
 
@@ -34,6 +36,11 @@ class Host(enum.Enum):
     def is_windows(self) -> bool:
         """Returns True if the given host is Windows."""
         return self == Host.Windows64
+
+    @property
+    def is_musl(self) -> bool:
+        """Returns True if the given host uses Musl libc."""
+        return self == Host.LinuxArm64
 
     @property
     def tag(self) -> str:
@@ -51,6 +58,8 @@ class Host(enum.Enum):
             # supported 32-bit Windows. Can clean this up if we ever fix the
             # value of the enum.
             return "windows-x86"
+        if self is Host.LinuxArm64:
+            return "linux-arm64"
         return f"{self.value}-x86"
 
     @property
@@ -70,6 +79,8 @@ class Host(enum.Enum):
         # But of course pylint thinks we *shouldn't* do that...
         # pylint: disable=no-else-return
         if sys.platform == "linux":
+            if platform.machine() == "aarch64":
+                return Host.LinuxArm64
             return Host.Linux
         elif sys.platform == "darwin":
             return Host.Darwin
@@ -84,6 +95,8 @@ class Host(enum.Enum):
             return Host.Darwin
         if tag == "linux-x86_64":
             return Host.Linux
+        if tag == "linux-arm64":
+            return Host.LinuxArm64
         if tag == "windows-x86_64":
             return Host.Windows64
         raise ValueError(f"Unrecognized host tag: {tag}")
@@ -97,6 +110,8 @@ def get_host_tag() -> str:
     # checking most of this function because it quits looking after the first condition.
     # https://github.com/python/mypy/issues/5678
     if sys.platform.startswith("linux"):  # pylint: disable=no-else-return
+        if platform.machine() == "aarch64":
+            return "linux-arm64"
         return "linux-x86_64"
     elif sys.platform == "darwin":
         return "darwin-x86_64"
@@ -117,6 +132,8 @@ def host_to_tag(host: Host) -> str:
     """
     # TODO: Clean up since this can all be + -x86_64 once we rename the windows
     # value.
+    if host == Host.LinuxArm64:
+        return "linux-arm64"
     if not host.is_windows:
         return host.value + "-x86_64"
     if host == Host.Windows64:

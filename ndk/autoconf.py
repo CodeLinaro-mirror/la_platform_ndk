@@ -31,6 +31,7 @@ from ndk.hosts import Host, get_default_host
 HOST_TRIPLE_MAP = {
     Host.Darwin: "x86_64-apple-darwin",
     Host.Linux: "x86_64-linux-gnu",
+    Host.LinuxArm64: "aarch64-unknown-linux-musl",
     Host.Windows64: "x86_64-w64-mingw32",
 }
 
@@ -116,6 +117,7 @@ class AutoconfBuilder:
     def _run(self, cmd: List[str], extra_env: Optional[Dict[str, str]] = None) -> None:
         """Runs and logs execution of a subprocess."""
         env = dict(extra_env) if extra_env is not None else {}
+        env.update(self.toolchain.env)
         if self.add_toolchain_to_path:
             paths = [str(p) for p in self.toolchain.bin_paths]
             paths.append(os.environ["PATH"])

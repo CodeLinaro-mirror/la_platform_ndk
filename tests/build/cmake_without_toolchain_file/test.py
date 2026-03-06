@@ -31,6 +31,8 @@ def find_cmake_and_ninja() -> tuple[Path, Path]:
     host = Host.current()
     if host is Host.Windows64:
         tag = "windows-x86"
+    elif host is Host.LinuxArm64:
+        tag = "linux-arm64"
     else:
         tag = f"{host.value}-x86"
     return (
