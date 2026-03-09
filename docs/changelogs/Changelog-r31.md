@@ -17,3 +17,4 @@ directly, see the [build system maintainers guide].
 ## Changes
 
 - Removed shaderc from the NDK.
+- Removed yasm from the NDK.

@@ -14,8 +14,3 @@ endif()
 if(LIBDL MATCHES ".a$")
   message(FATAL_ERROR "found libdl.a")
 endif()
-
-find_program(YASM yasm)
-if(NOT YASM)
-  message(FATAL_ERROR "yasm not found")
-endif()

@@ -139,7 +139,10 @@ TARGET_CFLAGS =
 TARGET_CONLYFLAGS =
 TARGET_CXXFLAGS = $(TARGET_CFLAGS)
 
-TARGET_ASM      = $(TOOLCHAIN_ROOT)/bin/yasm
+# TODO(b/493293121): yasm has been removed, but the rules to compile
+# *.asm files are still present in case we want to support externally provided
+# yasm/nasm.
+TARGET_ASM      =
 TARGET_ASMFLAGS =
 
 TARGET_LD       = $(TOOLCHAIN_ROOT)/bin/ld

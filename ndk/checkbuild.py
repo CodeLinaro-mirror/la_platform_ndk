@@ -717,26 +717,6 @@ class Make(ndk.builds.CMakeModule):
 
 
 @register
-class Yasm(ndk.builds.AutoconfModule):
-    name = "yasm"
-    install_path = Path("prebuilt/{host}")
-    notice_group = ndk.builds.NoticeGroup.TOOLCHAIN
-    src = ANDROID_DIR / "toolchain/yasm"
-
-    @property
-    def notices(self) -> Iterator[Path]:
-        files = [
-            "Artistic.txt",
-            "BSD.txt",
-            "COPYING",
-            "GNU_GPL-2.0",
-            "GNU_LGPL-2.0",
-        ]
-        for name in files:
-            yield self.src / name
-
-
-@register
 class NdkWhich(ndk.builds.FileModule):
     name = "ndk-which"
     install_path = Path("prebuilt/{host}/bin/ndk-which")
@@ -1111,13 +1091,11 @@ class Toolchain(ndk.builds.Module):
         "make",
         "sysroot",
         "system-stl",
-        "yasm",
     }
 
     @property
     def notices(self) -> Iterator[Path]:
         yield from Clang().notices
-        yield from Yasm().notices
         yield from Sysroot().notices
         yield from SystemStl().notices
 
@@ -1152,18 +1130,12 @@ class Toolchain(ndk.builds.Module):
 
     def install(self) -> None:
         install_dir = self.get_install_path()
-        yasm_dir = self.get_dep("yasm").get_install_path()
         sysroot_dir = self.get_dep("sysroot").get_install_path()
         system_stl_dir = self.get_dep("system-stl").get_install_path()
 
         shutil.copytree(sysroot_dir, self.sysroot_install_path, dirs_exist_ok=True)
 
         exe = ".exe" if self.host.is_windows else ""
-        shutil.copy2(
-            yasm_dir / "bin" / ("yasm" + exe),
-            install_dir / "bin",
-        )
-
         bin_dir = Path(install_dir) / "bin"
         lld = bin_dir / f"ld.lld{exe}"
         new_bin_ld = bin_dir / f"ld{exe}"

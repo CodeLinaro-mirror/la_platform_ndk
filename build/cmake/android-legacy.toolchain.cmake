@@ -615,12 +615,6 @@ set(CMAKE_AR "${ANDROID_AR}" CACHE FILEPATH "Archiver")
 set(CMAKE_RANLIB "${ANDROID_RANLIB}" CACHE FILEPATH "Ranlib")
 set(CMAKE_STRIP "${ANDROID_STRIP}" CACHE FILEPATH "Strip")
 
-if(ANDROID_ABI STREQUAL "x86" OR ANDROID_ABI STREQUAL "x86_64")
-  set(CMAKE_ASM_NASM_COMPILER
-    "${ANDROID_TOOLCHAIN_ROOT}/bin/yasm${ANDROID_TOOLCHAIN_SUFFIX}")
-  set(CMAKE_ASM_NASM_COMPILER_ARG1 "-DELF")
-endif()
-
 # Set or retrieve the cached flags.
 # This is necessary in case the user sets/changes flags in subsequent
 # configures. If we included the Android flags in here, they would get
