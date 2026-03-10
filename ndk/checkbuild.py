@@ -658,14 +658,17 @@ class Clang(ndk.builds.Module):
             )
 
         for entry in lib_dir.iterdir():
-            if not entry.is_dir():
+            if not entry.is_dir() and not entry.is_symlink():
                 raise RuntimeError(
-                    f"Unexpected non-directory found in f{lib_dir}. The "
-                    "toolchain layout has probably changed."
+                    f"Unexpected non-directory or symlink {entry.name} found in {lib_dir}. "
+                    "The toolchain layout has probably changed."
                 )
 
             if entry.name != "linux":
-                shutil.rmtree(entry)
+                if entry.is_symlink():
+                    entry.unlink()
+                else:
+                    shutil.rmtree(entry)
 
     def _check_and_remove_dangling_symlink(self, path: Path) -> None:
         """Removes an expected dangling symlink, or raises an error.
