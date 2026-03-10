@@ -539,9 +539,7 @@ will depend on how much of the resulting object file is expected to be unused.
 
 Note that each of the flags below will prevent the library or executable from
 loading on older devices. If your `minSdkVersion` is at least the supported API
-level, these flags are typically beneficial. A future release of the NDK will
-likely enable this by default based on the `minSdkVersion` passed to Clang. See
-[Issue 909] for more information.
+level, these flags are typically beneficial.
 
 Beginning with API level 23 it is possible to compress the relation data in
 libraries and executables. Libraries with large numbers of relocations will
@@ -551,7 +549,8 @@ API level 28 adds support for relative relocations (RELR) which can further
 reduce the size of relocations. Enable with `-Wl,--pack-dyn-relocs=android+relr`
 at link time. API levels 28 and 29 predate the standardization of this feature
 in ELF, so for those API levels also pass `-Wl,--use-android-relr-tags` at link
-time.
+time. Clang enables this by default based on the `minSdkVersion`.
+See [Issue 909] for more information.
 
 [Issue 909]: https://github.com/android/ndk/issues/909
 
