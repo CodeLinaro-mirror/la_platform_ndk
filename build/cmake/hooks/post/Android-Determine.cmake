@@ -15,6 +15,24 @@
 # This is a hook file that will be included by cmake at the end of
 # Modules/Platform/Android-Determine.cmake.
 
+# Cmake can't determine linux-arm64 hosts and set incorrect values.
+# This will be fixed in future versions.  Detect when the values are
+# wrong and override them.
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
+   CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "aarch64" AND
+   NOT CMAKE_ANDROID_NDK_TOOLCHAIN_HOST_TAG STREQUAL "linux-arm64" AND
+   CMAKE_ANDROID_NDK)
+
+   set(CMAKE_ANDROID_NDK_TOOLCHAIN_HOST_TAG "linux-arm64")
+   set(CMAKE_ANDROID_NDK_TOOLCHAIN_UNIFIED "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/${CMAKE_ANDROID_NDK_TOOLCHAIN_HOST_TAG}")
+
+   string(APPEND CMAKE_SYSTEM_CUSTOM_CODE
+     "set(CMAKE_ANDROID_NDK_TOOLCHAIN_HOST_TAG \"${CMAKE_ANDROID_NDK_TOOLCHAIN_HOST_TAG}\")\n"
+     "set(CMAKE_ANDROID_NDK_TOOLCHAIN_UNIFIED \"${CMAKE_ANDROID_NDK_TOOLCHAIN_UNIFIED}\")\n"
+   )
+endif()
+
+
 # android.toolchain.cmake may set this to export old variables.
 if(_ANDROID_EXPORT_COMPATIBILITY_VARIABLES)
   file(READ "${CMAKE_ANDROID_NDK}/build/cmake/exports.cmake" _EXPORTS)

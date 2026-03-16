@@ -33,11 +33,13 @@ from ndk.hosts import Host
 SYSTEM_NAME_MAP = {
     Host.Darwin: "Darwin",
     Host.Linux: "Linux",
+    Host.LinuxArm64: "Linux",
     Host.Windows64: "Windows",
 }
 
 HOST_TRIPLE_MAP = {
     Host.Linux: "x86_64-linux-gnu",
+    Host.LinuxArm64: "aarch64-unknown-linux-musl",
     Host.Windows64: "x86_64-w64-mingw32",
 }
 
@@ -195,7 +197,7 @@ class CMakeBuilder:
             "CMAKE_INSTALL_PREFIX": str(self.install_directory),
             "CMAKE_MAKE_PROGRAM": str(self._ninja),
             "CMAKE_SYSTEM_NAME": SYSTEM_NAME_MAP[self.host],
-            "CMAKE_SYSTEM_PROCESSOR": "x86_64",
+            "CMAKE_SYSTEM_PROCESSOR": "aarch64" if self.host is Host.LinuxArm64 else "x86_64",
             "CMAKE_FIND_ROOT_PATH_MODE_INCLUDE": "ONLY",
             "CMAKE_FIND_ROOT_PATH_MODE_LIBRARY": "ONLY",
             "CMAKE_FIND_ROOT_PATH_MODE_PACKAGE": "ONLY",

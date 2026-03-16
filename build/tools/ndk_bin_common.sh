@@ -27,6 +27,7 @@ esac
 
 HOST_ARCH=$(uname -m)
 case $HOST_ARCH in
+  aarch64) HOST_ARCH=arm64;;
   arm64) HOST_ARCH=arm64;;
   i?86) HOST_ARCH=x86;;
   x86_64|amd64) HOST_ARCH=x86_64;;

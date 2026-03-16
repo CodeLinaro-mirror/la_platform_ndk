@@ -228,8 +228,18 @@ ifndef HOST_ARCH
             $(call __ndk_error,32-bit Windows is supported.)
         endif
     endif
-    HOST_ARCH := x86
-    HOST_ARCH64 := x86_64
+    ifeq ($(HOST_OS),linux)
+        ifeq ($(shell uname -m),aarch64)
+            HOST_ARCH := arm64
+            HOST_ARCH64 := arm64
+        else
+            HOST_ARCH := x86
+            HOST_ARCH64 := x86_64
+        endif
+    else
+        HOST_ARCH := x86
+        HOST_ARCH64 := x86_64
+    endif
 else
     $(call ndk_log,Host CPU from environment: $(HOST_ARCH))
 endif

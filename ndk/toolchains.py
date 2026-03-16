@@ -16,7 +16,7 @@
 """APIs for accessing toolchains."""
 import subprocess
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import ndk.paths
 from ndk.hosts import Host, get_default_host
@@ -27,6 +27,7 @@ CLANG_VERSION = "clang-r584948b"
 HOST_TRIPLE_MAP = {
     Host.Darwin: "x86_64-apple-darwin",
     Host.Linux: "x86_64-linux-gnu",
+    Host.LinuxArm64: "aarch64-unknown-linux-musl",
     Host.Windows64: "x86_64-w64-mingw32",
 }
 
@@ -143,6 +144,11 @@ class Toolchain:
         raise NotImplementedError
 
     @property
+    def env(self) -> Dict[str, str]:
+        """Environment variables to be set when using the compiler."""
+        raise NotImplementedError
+
+    @property
     def flags(self) -> List[str]:
         """The default flags to be used with the compiler."""
         raise NotImplementedError
@@ -182,7 +188,6 @@ class Toolchain:
         """The path to strings."""
         raise NotImplementedError
 
-
 class Sysroot:
     """A sysroot for the target platform."""
 
@@ -201,14 +206,14 @@ class Sysroot:
         The GCC library directory contains libgcc and other compiler runtime
         libraries. These may be split across multiple directories.
         """
-        lib_dirs = [
-            self.path
+        lib_dirs = []
+        if not self.target.is_musl:
+            lib_dirs.append(self.path
             / {
                 Host.Darwin: "lib/gcc/i686-apple-darwin11/4.2.1",
                 Host.Linux: "lib/gcc/x86_64-linux/4.8.3",
                 Host.Windows64: "lib/gcc/x86_64-w64-mingw32/4.8.3",
-            }[self.target]
-        ]
+            }[self.target])
         if self.target != Host.Darwin:
             lib_dirs.append(self.path / self.triple / "lib64")
         return lib_dirs
@@ -226,6 +231,11 @@ class Sysroot:
                 ndk.paths.ANDROID_DIR
                 / "prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8"
             )
+        if self.target == Host.LinuxArm64:
+            return (
+                ndk.paths.ANDROID_DIR
+                / "prebuilts/build-tools/sysroots/aarch64-unknown-linux-musl"
+            )
         return (
             ndk.paths.ANDROID_DIR
             / "prebuilts/gcc/linux-x86/host/x86_64-w64-mingw32-4.8"
@@ -234,6 +244,8 @@ class Sysroot:
     @property
     def sysroot(self) -> Path:
         """The path to the GCC sysroot."""
+        if self.target == Host.LinuxArm64:
+            return self.path
         if self.target == Host.Linux:
             return self.path / "sysroot"
         return self.path / self.triple
@@ -244,6 +256,7 @@ class Sysroot:
         return {
             Host.Darwin: "x86_64-apple-darwin11",
             Host.Linux: "x86_64-linux",
+            Host.LinuxArm64: "aarch64-unknown-linux-musl",
             Host.Windows64: "x86_64-w64-mingw32",
         }[self.target]
 
@@ -261,6 +274,7 @@ class ClangToolchain(Toolchain):
         host_tag = {
             Host.Darwin: "darwin-x86",
             Host.Linux: "linux-x86",
+            Host.LinuxArm64: "linux-arm64",
             Host.Windows64: "windows-x86",
         }[host]
         return ndk.paths.ANDROID_DIR / "prebuilts/clang/host" / host_tag / CLANG_VERSION
@@ -312,6 +326,12 @@ class ClangToolchain(Toolchain):
         return lib_dirs
 
     @property
+    def env(self) -> Dict[str, str]:
+        if self.target.is_musl:
+            return {"LD_LIBRARY_PATH": self.sysroot.sysroot / "lib"}
+        return {}
+
+    @property
     def flags(self) -> List[str]:
         host_triple = HOST_TRIPLE_MAP[self.target]
         flags = [
@@ -344,6 +364,9 @@ class ClangToolchain(Toolchain):
                         f"-B{lib_dir}",
                     ]
                 )
+
+        if self.target.is_musl:
+            flags.append("-rtlib=compiler-rt")
 
         return flags
 

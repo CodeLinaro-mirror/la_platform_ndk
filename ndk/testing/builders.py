@@ -78,6 +78,8 @@ class CMakeBuilder:
         host = Host.current()
         if host == Host.Windows64:
             tag = "windows-x86"
+        elif host == Host.LinuxArm64:
+            tag = "linux-arm64"
         else:
             tag = f"{host.value}-x86"
         cmake = ANDROID_DIR / f"prebuilts/cmake/{tag}/bin/cmake"

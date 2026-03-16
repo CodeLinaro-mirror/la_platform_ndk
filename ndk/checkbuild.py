@@ -408,7 +408,7 @@ class Clang(ndk.builds.Module):
 
         # The prebuilt Linux Clangs include a bazel file for some other users.
         # We don't need or test this interface so we shouldn't ship it.
-        if self.host is Host.Linux:
+        if self.host is Host.Linux or self.host is Host.LinuxArm64:
             (install_path / "BUILD.bazel").unlink()
 
         # clang-4053586 was patched in the prebuilts directory to add the
@@ -419,7 +419,7 @@ class Clang(ndk.builds.Module):
         # https://github.com/android-ndk/ndk/issues/564#issuecomment-342307128
         shutil.rmtree(install_path / "include")
 
-        if self.host is Host.Linux:
+        if self.host is Host.Linux or self.host is Host.LinuxArm64:
             # The Linux toolchain wraps the compiler to inject some behavior
             # for the platform. They aren't used for every platform and we want
             # consistent behavior across platforms, and we also don't want the
@@ -466,7 +466,7 @@ class Clang(ndk.builds.Module):
                 for pyfile in python_bin_dir.glob(file_pattern):
                     pyfile.unlink()
 
-        if self.host != Host.Linux:
+        if self.host != Host.Linux and self.host != Host.LinuxArm64:
             # We don't build target binaries as part of the Darwin or Windows build.
             # These toolchains need to get these from the Linux prebuilts.
             #
@@ -580,7 +580,7 @@ class Clang(ndk.builds.Module):
             lib_ext = ".dylib" if self.host is Host.Darwin else ".so"
             (install_path / "lib" / "libLLVM").with_suffix(lib_ext).unlink()
             (install_path / "lib" / "libLTO").with_suffix(lib_ext).unlink()
-            if self.host is Host.Linux or self.host is Host.Darwin:
+            if self.host is Host.Linux or self.host is Host.LinuxArm64 or self.host is Host.Darwin:
                 for library in (install_path / "lib").glob("libLLVM-*"):
                     library.unlink()
 
@@ -717,6 +717,26 @@ class Make(ndk.builds.CMakeModule):
     @property
     def notices(self) -> Iterator[Path]:
         yield self.src / "COPYING"
+
+    @property
+    def ldflags(self) -> List[str]:
+        ldflags = super().ldflags
+        if self.host.is_musl:
+            # When building against musl set the rpath to find libc_musl.so
+            # relative to the binary.
+            ldflags += ["-Wl,-rpath,\\$ORIGIN:\\$ORIGIN/../lib64"]
+        return ldflags
+
+    def install(self) -> None:
+        super().install()
+
+        if self.host.is_musl:
+            # When building against musl copy libc_musl.so into the install
+            # directory.
+            install_dir = self.get_install_path() / "lib64"
+            install_dir.mkdir(parents=True, exist_ok=True)
+            toolchain = ClangToolchain(self.host)
+            shutil.copy2(toolchain.sysroot.path / "lib" / "libc_musl.so", install_dir)
 
 
 @register
@@ -941,7 +961,7 @@ class Sysroot(ndk.builds.Module):
         if install_path.exists():
             shutil.rmtree(install_path)
         shutil.copytree(PREBUILT_SYSROOT, install_path)
-        if self.host is not Host.Linux:
+        if self.host is not Host.Linux and self.host is not Host.LinuxArm64:
             # linux/netfilter has some headers with names that differ only
             # by case, which can't be extracted to a case-insensitive
             # filesystem, which are the defaults for Darwin and Windows :(
@@ -1481,7 +1501,7 @@ class SimplePerf(ndk.builds.Module):
             Path("proto"),
             Path("purgatorio"),
         ]
-        host_bin_dir = "windows" if self.host.is_windows else self.host.value
+        host_bin_dir = "windows" if self.host.is_windows else "linux" if self.host is Host.LinuxArm64 else self.host.value
         dirs.append(Path("bin") / host_bin_dir)
         for d in dirs:
             shutil.copytree(simpleperf_path / d, install_dir / d)
