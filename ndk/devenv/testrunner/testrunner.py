@@ -11,7 +11,7 @@ from pathlib import Path
 from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeElapsedColumn
 
 from ndk.abis import Abi
-from ndk.devenv.deviceproviders.acid import AcidDeviceProvider
+from ndk.devenv.deviceproviders.acid import ACID_PATH, AcidDeviceProvider
 from ndk.devenv.devices import Device, DeviceFleet, find_devices
 from ndk.ext.subprocess import async_run
 from ndk.test.filters import TestFilter
@@ -51,7 +51,7 @@ async def acquire_missing_devices(fleet: DeviceFleet) -> None:
     if not missing_shards:
         return
 
-    if shutil.which("acid") is None:
+    if shutil.which(ACID_PATH) is None:
         print("Cannot auto-acquire missing devices because acid is not installed")
         return
 
