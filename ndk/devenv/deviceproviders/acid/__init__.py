@@ -14,5 +14,6 @@
 # limitations under the License.
 #
 from .aciddeviceprovider import AcidDeviceProvider
+from .acidcli import ACID_PATH
 
-__all__ = ["AcidDeviceProvider"]
+__all__ = ["AcidDeviceProvider", "ACID_PATH"]

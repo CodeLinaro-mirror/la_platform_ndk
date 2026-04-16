@@ -15,12 +15,22 @@
 #
 import asyncio
 import subprocess
+import sys
+
+def acid_path():
+    # acid is a binfs binary in linux-x86 and an installed executable in macos.
+    if sys.platform.startswith("linux"):
+        return "/google/bin/releases/mobile-devx-platform/acid/acid"
+    else:
+        return "acid"
+
+ACID_PATH = acid_path()
 
 
 class AcidCli:
     async def sessions(self) -> str:
         """Returns the raw output of `acid sessions`."""
-        cmd = ["acid", "sessions"]
+        cmd = [ACID_PATH, "sessions"]
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=subprocess.PIPE,
@@ -33,7 +43,7 @@ class AcidCli:
         return out.decode("utf-8")
 
     async def lease_android_emulator(self, os_version: int) -> None:
-        cmd = ["acid", "lease_android_emulator", "GENERIC_PHONE", str(os_version)]
+        cmd = [ACID_PATH, "lease_android_emulator", "GENERIC_PHONE", str(os_version)]
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=subprocess.PIPE,
