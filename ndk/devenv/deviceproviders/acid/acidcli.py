@@ -19,7 +19,7 @@ import sys
 
 def acid_path():
     # acid is a binfs binary in linux-x86 and an installed executable in macos.
-    if sys.platform.startswith("linux-x86"):
+    if sys.platform.startswith("linux"):
         return "/google/bin/releases/mobile-devx-platform/acid/acid"
     else:
         return "acid"
