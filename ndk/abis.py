@@ -17,7 +17,7 @@
 from collections.abc import Iterator
 from typing import NewType, Optional
 
-from .platforms import FIRST_LP64_API_LEVEL, FIRST_RISCV64_API_LEVEL, MIN_API_LEVEL
+from .platforms import FIRST_RISCV64_API_LEVEL, MIN_API_LEVEL
 
 Arch = NewType("Arch", str)
 Abi = NewType("Abi", str)
@@ -109,9 +109,7 @@ def min_api_for_abi(abi: Abi) -> int:
     """
     if abi == Abi("riscv64"):
         return FIRST_RISCV64_API_LEVEL
-    if abi in LP64_ABIS:
-        return FIRST_LP64_API_LEVEL
-    if abi in LP32_ABIS:
+    if abi in LP64_ABIS or abi in LP32_ABIS:
         return MIN_API_LEVEL
     raise ValueError("Invalid ABI: {}".format(abi))
 

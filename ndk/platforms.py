@@ -28,5 +28,4 @@ def _load_data() -> tuple[int, int, dict[str, int]]:
 
 MIN_API_LEVEL, MAX_API_LEVEL, API_LEVEL_ALIASES = _load_data()
 ALL_API_LEVELS = list(range(MIN_API_LEVEL, MAX_API_LEVEL + 1))
-FIRST_LP64_API_LEVEL = 21
 FIRST_RISCV64_API_LEVEL = MAX_API_LEVEL
