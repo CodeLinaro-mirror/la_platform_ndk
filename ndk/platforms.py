@@ -28,4 +28,9 @@ def _load_data() -> tuple[int, int, dict[str, int]]:
 
 MIN_API_LEVEL, MAX_API_LEVEL, API_LEVEL_ALIASES = _load_data()
 ALL_API_LEVELS = list(range(MIN_API_LEVEL, MAX_API_LEVEL + 1))
+
+# riscv64 isn't yet an officially supported NDK ABI, so until/unless that
+# changes, we act as if it's available in the current maximum api level
+# supported by any architecture.
+# This should be hard-coded to an actual number if/when riscv64 is official.
 FIRST_RISCV64_API_LEVEL = MAX_API_LEVEL
