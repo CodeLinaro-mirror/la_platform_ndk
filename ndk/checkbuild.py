@@ -1924,7 +1924,7 @@ def iter_python_app_modules() -> Iterator[type[ndk.builds.PythonApplication]]:
 
 
 def build_number_arg(value: str) -> int:
-    if value.startswith("P"):
+    if value.startswith(("P", "S")):
         # Treehugger build. Treat as a local development build.
         return 0
     return int(value)
