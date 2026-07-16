@@ -719,6 +719,12 @@ class Make(ndk.builds.CMakeModule):
         yield self.src / "COPYING"
 
     @property
+    def flags(self) -> List[str]:
+        flags = super().flags
+        flags += ["-Wno-error=incompatible-pointer-types"]
+        return flags
+
+    @property
     def ldflags(self) -> List[str]:
         ldflags = super().ldflags
         if self.host.is_musl:
