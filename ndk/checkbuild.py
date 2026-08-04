@@ -743,6 +743,7 @@ class Make(ndk.builds.CMakeModule):
             install_dir.mkdir(parents=True, exist_ok=True)
             toolchain = ClangToolchain(self.host)
             shutil.copy2(toolchain.sysroot.path / "lib" / "libc_musl.so", install_dir)
+            shutil.copy2(toolchain.sysroot.path / "lib" / "libjemalloc5.so", install_dir)
 
 
 @register
