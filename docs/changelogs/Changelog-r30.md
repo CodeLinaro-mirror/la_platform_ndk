@@ -16,7 +16,7 @@ directly, see the [build system maintainers guide].
 
 ## Changes
 
-- Updated LLVM to clang-r574158b. See `clang_source_info.md` in the toolchain
+- Updated LLVM to clang-r574158c. See `clang_source_info.md` in the toolchain
   directory for version information.
   - [Issue 2073]: Fixed runtime segfault when using LTO and nested exception
     handlers.
@@ -27,7 +27,9 @@ directly, see the [build system maintainers guide].
   - [Issue 2226]: Fixed compiler crash when compiling defaulted equality operator for AArch64.
   - [Issue 2230]: Fixed Clang modules compilation failure involving `wchar.h` redefinitions.
   - [Issue 2234]: Fixed LLDB not being able to read a shared library if it is the last entry in the APK.
+  - [Issue 2243]: Fixed internal linkage functions in global module fragments
   - Improved ARM code generation for dot product instructions.
+- Upgraded the max API to 37 for NDK sysroots
 
 [Issue 2073]: https://github.com/android/ndk/issues/2073
 [Issue 2160]: https://github.com/android/ndk/issues/2160
@@ -37,3 +39,4 @@ directly, see the [build system maintainers guide].
 [Issue 2226]: https://github.com/android/ndk/issues/2226
 [Issue 2230]: https://github.com/android/ndk/issues/2230
 [Issue 2234]: https://github.com/android/ndk/issues/2234
+[Issue 2243]: https://github.com/android/ndk/issues/2243
