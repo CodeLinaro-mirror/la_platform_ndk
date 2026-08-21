@@ -115,7 +115,7 @@ GLOBAL_CFLAGS += \
     -Wno-invalid-command-line-argument \
     -Wno-unused-command-line-argument \
 
-GLOBAL_CFLAGS += -D_FORTIFY_SOURCE=2
+GLOBAL_CFLAGS += -D_FORTIFY_SOURCE=3
 
 
 ifeq ($(APP_WEAK_API_DEFS), true)

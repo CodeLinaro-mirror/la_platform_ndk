@@ -20,3 +20,7 @@ directly, see the [build system maintainers guide].
   directory for version information.
 - Removed shaderc from the NDK.
 - Removed yasm from the NDK.
+- [Issue 2245]: ndk-build and the CMake toolchain file now enable
+  `_FORTIFY_SOURCE=3` by default (upgraded from `_FORTIFY_SOURCE=2`).
+
+[Issue 2245]: https://github.com/android/ndk/issues/2245

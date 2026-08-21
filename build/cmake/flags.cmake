@@ -96,7 +96,7 @@ if(CMAKE_ANDROID_ARCH_ABI STREQUAL x86 AND CMAKE_SYSTEM_VERSION LESS 24)
   string(APPEND _ANDROID_NDK_INIT_CFLAGS " -mstackrealign")
 endif()
 
-string(APPEND _ANDROID_NDK_INIT_CFLAGS " -D_FORTIFY_SOURCE=2")
+string(APPEND _ANDROID_NDK_INIT_CFLAGS " -D_FORTIFY_SOURCE=3")
 
 if(CMAKE_ANDROID_ARCH_ABI MATCHES "armeabi")
   # Clang does not set this up properly when using -fno-integrated-as.
