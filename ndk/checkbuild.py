@@ -916,7 +916,7 @@ class CpuFeatures(ndk.builds.PackageModule):
 class NativeAppGlue(ndk.builds.PackageModule):
     name = "native_app_glue"
     install_path = Path("sources/android/native_app_glue")
-    src = NDK_DIR / "sources/android/native_app_glue"
+    src = ANDROID_DIR / "development/ndk/native_app_glue"
 
 
 @register
