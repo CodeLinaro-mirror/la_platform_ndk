@@ -175,7 +175,7 @@ NDK_ANALYZER_FLAGS=
 if [ "$NDK_ANALYZE" = 1 ]; then
     # Continue supporting the old interface to the static analyzer. clang-tidy
     # does all the same checks by default (and some new ones).
-    NDK_ANALYZER_FLAGS=APP_CLANG_TIDY=true
+    NDK_ANALYZER_FLAGS="APP_CLANG_TIDY=true APP_CLANG_TIDY_FLAGS=-checks=clang-analyzer-*"
 fi
 
 "$GNUMAKE" -O -f "$PROGDIR/core/build-local.mk" $NDK_ANALYZER_FLAGS "$@"
