@@ -14,13 +14,47 @@ directly, see the [build system maintainers guide].
 
 ## Announcements
 
+- Lollipop (APIs 21 and 22) is no longer supported. The minimum OS supported by
+  the NDK is Marshmallow (API level 23). See [Issue 2188] for details.
+
+- NDK now supports Linux Arm64 as a host. We now provide both toolchains, sysroots,
+  and other NDK tools all working on Linux Arm64. As a result of supporting Linux Arm64,g
+  we have dropped some NDK tools (cpufeatures, ndk_helper, shaderc, and yasm) which are
+  also mentioned in the Changes below.
+
 ## Changes
 
-- Updated LLVM to clang-r596125. See `clang_source_info.md` in the toolchain
+- Updated LLVM to clang-r614150. See `clang_source_info.md` in the toolchain
   directory for version information.
-- Removed shaderc from the NDK.
-- Removed yasm from the NDK.
+  - [Issue 1261]: Enabled _LIBCPP_HAS_TRIVIAL_MUTEX_DESTRUCTION for Bionic.
+  - [Issue 1914]: Enabled PAC/BTI for Android Targets by Default.
+  - [Issue 2072]: Toolchain runtimes (excluding builtins and compiler-rt) are built with
+    `FORTIFY_SOURCE=3` and stack-protector.
+  - [Issue 2165]: Toolchain now supports libclang.lib for Windows.
+  - [Issue 2101]: Fixed issue where optimizations appeared in Clang's vendor string which
+    led to different host compilers to produce different binaries.
+  - [Issue 2193]: Packed relocations for Android are now added automatically by Clang driver.
+  - [Issue 2249]: Bundle llvm-profgen in the toolchain.
+- [Issue 2240]: Fixed stpncpy implementation to conform to the C standard when being used
+  with FORTIFY_SOURCE.
 - [Issue 2245]: ndk-build and the CMake toolchain file now enable
   `_FORTIFY_SOURCE=3` by default (upgraded from `_FORTIFY_SOURCE=2`).
+- [Issue 2247]: Removed cpufeatures from the NDK.
+- [Issue 2251]: Removed ndk_helper fron the NDK.
+- [Issue 2252]: Removed shaderc from the NDK.
+- [Issue 2253]: Removed yasm from the NDK.
 
+[Issue 1261]: https://github.com/android/ndk/issues/1261
+[Issue 1914]: https://github.com/android/ndk/issues/1914
+[Issue 2072]: https://github.com/android/ndk/issues/2072
+[Issue 2101]: https://github.com/android/ndk/issues/2101
+[Issue 2165]: https://github.com/android/ndk/issues/2165
+[Issue 2188]: https://github.com/android/ndk/issues/2188
+[Issue 2193]: https://github.com/android/ndk/issues/2193
+[Issue 2240]: https://github.com/android/ndk/issues/2240
 [Issue 2245]: https://github.com/android/ndk/issues/2245
+[Issue 2247]: https://github.com/android/ndk/issues/2247
+[Issue 2249]: https://github.com/android/ndk/issues/2249
+[Issue 2251]: https://github.com/android/ndk/issues/2251
+[Issue 2252]: https://github.com/android/ndk/issues/2252
+[Issue 2253]: https://github.com/android/ndk/issues/2253
