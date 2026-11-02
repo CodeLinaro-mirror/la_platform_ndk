@@ -14,7 +14,7 @@
 #
 
 TOOLCHAIN_NAME := riscv64-linux-android
-LLVM_TRIPLE := riscv64-none-linux-android
+LLVM_TRIPLE := riscv64-linux-android
 
 TARGET_TOOLCHAIN_ARCH_LIB_DIR := riscv64
 TARGET_ASAN_BASENAME := libclang_rt.asan-riscv64-android.so
