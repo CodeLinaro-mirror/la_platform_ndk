@@ -14,7 +14,7 @@
 #
 
 TOOLCHAIN_NAME := arm-linux-androideabi
-LLVM_TRIPLE := armv7-none-linux-androideabi
+LLVM_TRIPLE := armv7a-linux-androideabi
 
 TARGET_TOOLCHAIN_ARCH_LIB_DIR := arm
 TARGET_ASAN_BASENAME := libclang_rt.asan-arm-android.so

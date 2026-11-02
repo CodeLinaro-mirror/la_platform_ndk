@@ -6,7 +6,7 @@
     "proc": "armv7-a",
     "arch": "arm",
     "triple": "arm-linux-androideabi",
-    "llvm_triple": "armv7-none-linux-androideabi"
+    "llvm_triple": "armv7a-linux-androideabi"
   },
   "arm64-v8a": {
     "bitness": 64,
@@ -15,7 +15,7 @@
     "proc": "aarch64",
     "arch": "arm64",
     "triple": "aarch64-linux-android",
-    "llvm_triple": "aarch64-none-linux-android"
+    "llvm_triple": "aarch64-linux-android"
   },
   "riscv64": {
     "bitness": 64,
@@ -24,7 +24,7 @@
     "proc": "riscv64",
     "arch": "riscv64",
     "triple": "riscv64-linux-android",
-    "llvm_triple": "riscv64-none-linux-android"
+    "llvm_triple": "riscv64-linux-android"
   },
   "x86": {
     "bitness": 32,
@@ -33,7 +33,7 @@
     "proc": "i686",
     "arch": "x86",
     "triple": "i686-linux-android",
-    "llvm_triple": "i686-none-linux-android"
+    "llvm_triple": "i686-linux-android"
   },
   "x86_64": {
     "bitness": 64,
@@ -42,6 +42,6 @@
     "proc": "x86_64",
     "arch": "x86_64",
     "triple": "x86_64-linux-android",
-    "llvm_triple": "x86_64-none-linux-android"
+    "llvm_triple": "x86_64-linux-android"
   }
 }

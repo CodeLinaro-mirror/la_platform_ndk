@@ -43,6 +43,10 @@ directly, see the [build system maintainers guide].
 - [Issue 2251]: Removed ndk_helper fron the NDK.
 - [Issue 2252]: Removed shaderc from the NDK.
 - [Issue 2253]: Removed yasm from the NDK.
+- [Issue 2263]: ndk-build and the CMake toolchain file now pass the same `--target` spelling
+  as the NDK's clang wrapper scripts (for example, `aarch64-linux-android21` instead of
+  `aarch64-none-linux-android21`). Clang requires the triple to match exactly when loading a
+  PCH or module, so mixing them caused errors in tools like `clang-scan-deps`.
 
 [Issue 1261]: https://github.com/android/ndk/issues/1261
 [Issue 1914]: https://github.com/android/ndk/issues/1914
@@ -58,3 +62,4 @@ directly, see the [build system maintainers guide].
 [Issue 2251]: https://github.com/android/ndk/issues/2251
 [Issue 2252]: https://github.com/android/ndk/issues/2252
 [Issue 2253]: https://github.com/android/ndk/issues/2253
+[Issue 2263]: https://github.com/android/ndk/issues/2263
