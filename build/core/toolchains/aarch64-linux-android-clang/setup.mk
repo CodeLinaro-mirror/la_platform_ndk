@@ -14,7 +14,7 @@
 #
 
 TOOLCHAIN_NAME := aarch64-linux-android
-LLVM_TRIPLE := aarch64-none-linux-android
+LLVM_TRIPLE := aarch64-linux-android
 
 TARGET_TOOLCHAIN_ARCH_LIB_DIR := aarch64
 TARGET_ASAN_BASENAME := libclang_rt.asan-aarch64-android.so
