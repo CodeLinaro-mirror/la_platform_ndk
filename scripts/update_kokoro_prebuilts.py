@@ -22,8 +22,8 @@ each build's main archive and extracts it into the appropriate place in an
 ndk-kokoro-main repo/pore checkout. It automatically creates a branch and a
 commit updating each prebuilt.
 
-The script uses the `gsutil` CLI tool from the Google Cloud SDK to download
-artifacts. It first uses a `gsutil ls` command with a '**' wildcard to search
+The script uses the `gcloud storage` CLI tool from the Google Cloud SDK to download
+artifacts. It first uses a `gcloud storage ls` command with a '**' wildcard to search
 the GCS bucket for the XML manifests for the given UUIDs. These manifest paths
 contain the Kokoro job name.
 
@@ -231,12 +231,12 @@ def parse_manifest_repos(manifest_path: Path) -> dict[str, str]:
 def get_build_status(
     build_id_list: list[UUID], gsutil_cmd: str, tmp_dir: Path
 ) -> list[BuildStatus]:
-    """Use gsutil to query build statuses of a set of build IDs."""
+    """Use gcloud storage to query build statuses of a set of build IDs."""
 
     # Search the GCS bucket for XML manifests matching the build IDs. Allow the
     # command to fail, because we'll do a better job of reporting missing UUIDs
     # afterwards.
-    gsutil_ls_cmd = [gsutil_cmd, "ls"] + [
+    gsutil_ls_cmd = [gsutil_cmd, "storage", "ls"] + [
         f"gs://{GCS_BUCKET}/**/manifest-{x}.xml" for x in build_id_list
     ]
     logger().info("run `%s`", shlex.join(gsutil_ls_cmd))
@@ -252,7 +252,7 @@ def get_build_status(
     ls_info: dict[UUID, LsLine] = {}
 
     for ls_line in ls_output.stdout.splitlines():
-        logger().debug("gsutil ls output: %s", ls_line)
+        logger().debug("gcloud storage ls output: %s", ls_line)
         match = re.match(
             rf"(gs://{GCS_BUCKET}/prod/"
             r"(.*)/"  # Kokoro job name (e.g. ndk/cmake/linux_release)
@@ -262,7 +262,7 @@ def get_build_status(
             ls_line,
         )
         if not match:
-            sys.exit(f"error: could not parse `gsutil ls` line: {ls_line}")
+            sys.exit(f"error: could not parse `gcloud storage ls` line: {ls_line}")
         gcs_path, job_name, bid_str = match.groups()
         ls_info[UUID(bid_str)] = LsLine(job_name, gcs_path)
 
@@ -271,7 +271,7 @@ def get_build_status(
         sys.exit("error: build IDs not found: " + ", ".join(map(str, sorted(missing))))
 
     xml_paths = [f"{ls_info[bid].gcs_path}/manifest-{bid}.xml" for bid in build_id_list]
-    check_call(["gsutil", "cp"] + xml_paths + [str(tmp_dir)])
+    check_call(["gcloud", "storage", "cp"] + xml_paths + [str(tmp_dir)])
 
     result = []
     for bid in build_id_list:
@@ -353,7 +353,7 @@ def download_artifacts(
         src = build.gcs_path + "/" + prebuilt.artifact_glob.format(build_id=build.build_id)
         dest = tmp_dir / str(build.build_id)
         makedirs(dest)
-        check_call([gsutil_cmd, "-m", "cp", src, str(dest)])
+        check_call([gsutil_cmd, "storage", "cp", src, str(dest)])
 
         print(dest, os.path.basename(src))
         (artifact,) = dest.glob(os.path.basename(src))
@@ -418,10 +418,10 @@ def main() -> None:
     else:
         logging.basicConfig(level=logging.INFO)
 
-    gsutil_cmd = shutil.which("gsutil")
+    gsutil_cmd = shutil.which("gcloud")
     if not gsutil_cmd:
         sys.exit(
-            'error: no "gsutil" in PATH. ' 'Try "apt-get install google-cloud-sdk".'
+            'error: no "gcloud" in PATH. ' 'Try "apt-get install google-cloud-sdk".'
         )
 
     tmp_dir = REPO_ROOT / "gcs_artifacts"
