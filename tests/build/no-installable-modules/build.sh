@@ -15,11 +15,11 @@ if [ -z "$LIBFOO_LIBS" ]; then
   exit 1
 fi
 
-# Check that libcpufeatures.a was _not_ built because it was not
+# Check that libandroid_native_app_glue.a was _not_ built because it was not
 # a top-level module, but an imported one.
-CPUFEATURES_LIBS=$(find . -name "libcpufeatures.a" 2>/dev/null)
-if [ -n "$CPUFEATURES_LIBS" ]; then
-  echo "ERROR: Should not find libcpufeatures.a in output directory:"
+NATIVE_APP_GLUE_LIBS=$(find . -name "libandroid_native_app_glue.a" 2>/dev/null)
+if [ -n "$NATIVE_APP_GLUE_LIBS" ]; then
+  echo "ERROR: Should not find libandroid_native_app_glue.a in output directory:"
   tree .
   exit 1
 fi

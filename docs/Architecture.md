@@ -171,7 +171,7 @@ both Java and native code, is not included as part of the NDK.
 ### Support libraries
 
 `sources/android` and `sources/third_party` contain modules that can be used in
-apps (gtest, cpufeatures, native\_app\_glue, etc) via `$(call
+apps (gtest and native\_app\_glue) via `$(call
 import-module,$MODULE)` in ndk-build. CMake modules are not yet available.
 
 ## The platform

@@ -906,24 +906,10 @@ def make_linker_script(path: Path, libs: List[str]) -> None:
 
 
 @register
-class CpuFeatures(ndk.builds.PackageModule):
-    name = "cpufeatures"
-    install_path = Path("sources/android/cpufeatures")
-    src = NDK_DIR / "sources/android/cpufeatures"
-
-
-@register
 class NativeAppGlue(ndk.builds.PackageModule):
     name = "native_app_glue"
     install_path = Path("sources/android/native_app_glue")
     src = ANDROID_DIR / "development/ndk/native_app_glue"
-
-
-@register
-class NdkHelper(ndk.builds.PackageModule):
-    name = "ndk_helper"
-    install_path = Path("sources/android/ndk_helper")
-    src = NDK_DIR / "sources/android/ndk_helper"
 
 
 @register

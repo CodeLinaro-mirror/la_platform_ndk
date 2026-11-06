@@ -10,4 +10,4 @@ include $(BUILD_STATIC_LIBRARY)
 # Import another module, which is not used by the one declared here.
 # The build.sh will check that it is _not_ compiled.
 #
-$(call import-module,android/cpufeatures)
+$(call import-module,android/native_app_glue)
