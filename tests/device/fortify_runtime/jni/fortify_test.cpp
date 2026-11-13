@@ -6,12 +6,9 @@
 #include "gtest/gtest-death-test.h"
 
 static const char* expected_stderr() {
-  if (android_get_device_api_level() <= 21) {
-    // The program is still halted and logcat includes the message on kitkat,
-    // but that message doesn't reach stderr. I'm not sure when that was fixed,
-    // so this may need revising each time we increase the lowest tested API
-    // level.
-    return "";
+  if (android_get_device_api_level() <= 23) {
+    // Prior to API 24, Bionic's FORTIFY diagnostics did not include sizes.
+    return "memset: prevented write past end of buffer";
   } else {
     return "memset: prevented 5-byte write into 4-byte buffer";
   }
