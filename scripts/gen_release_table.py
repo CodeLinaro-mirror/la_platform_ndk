@@ -63,14 +63,23 @@ class Artifact:
     sha: str
 
     def __post_init__(self) -> None:
-        sort_order = {"windows": 1, "darwin": 2, "linux": 3}
-        object.__setattr__(self, "sort_index", sort_order.get(self.host, 4))
+        sort_order = {
+            "windows": 1,
+            "darwin": 2,
+            # Necessary for older NDK releases like r30.
+            "linux": 3,
+            "linux-x86_64": 3,
+            "linux-arm64": 4,
+        }
+        object.__setattr__(self, "sort_index", sort_order.get(self.host, 5))
 
     @property
     def pretty_host(self) -> str:
         return {
             "darwin": "macOS",
-            "linux": "Linux",
+            "linux": "Linux (x86_64)",
+            "linux-x86_64": "Linux (x86_64)",
+            "linux-arm64": "Linux (Arm64)",
             "windows": "Windows",
         }[self.host]
 
@@ -101,9 +110,11 @@ class Artifact:
     @staticmethod
     def host_from_package_path(path: Path) -> str:
         # android-ndk-$VERSION-$HOST.$EXT
-        # $VERSION might contain a hyphen for beta/RC releases.
-        # Split on all hyphens and join $HOST and $EXT to get the platform.
-        return path.stem.split("-")[-1]
+        # $VERSION and $HOST might contain hyphens (e.g. r31-beta1, linux-x86_64).
+        for host in ("linux-x86_64", "linux-arm64", "darwin", "linux", "windows"):
+            if path.stem.endswith(f"-{host}"):
+                return host
+        raise ValueError(f"Unrecognized package path: {path}")
 
 
 def main() -> None:
@@ -163,6 +174,8 @@ def main() -> None:
         dac_host = {
             "darwin": "mac64_dmg",
             "linux": "linux64",
+            "linux-x86_64": "linux64",
+            "linux-arm64": "linux_arm64",
             "windows": "win64",
         }[artifact.host]
         print()
