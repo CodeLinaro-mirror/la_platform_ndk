@@ -20,6 +20,7 @@ import argparse
 import contextlib
 import logging
 import os
+import platform
 import posixpath
 import signal
 import subprocess
@@ -467,11 +468,12 @@ def abi_to_llvm_arch(abi: str) -> str:
 
 
 def get_llvm_host_name() -> str:
-    platform = sys.platform
-    if platform.startswith("win"):
+    if sys.platform.startswith("win"):
         return "windows-x86_64"
-    if platform.startswith("darwin"):
+    if sys.platform.startswith("darwin"):
         return "darwin-x86_64"
+    if platform.machine() == "aarch64":
+        return "linux-arm64"
     return "linux-x86_64"
 
 

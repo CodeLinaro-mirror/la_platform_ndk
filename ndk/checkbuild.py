@@ -521,7 +521,7 @@ class Clang(ndk.builds.Module):
         # artifacts install these to a location the driver doesn't search. We relocate
         # these as necessary (either in this class or in Toolchain), so clean up the
         # excess. The Android runtimes are only packaged in the Linux toolchain.
-        if self.host == Host.Linux:
+        if self.host in (Host.Linux, Host.LinuxArm64):
             shutil.rmtree(install_path / "runtimes_ndk_cxx")
             shutil.rmtree(install_path / "android_libc++")
 
@@ -701,7 +701,7 @@ def versioned_so(host: Host, lib: str, version: str) -> str:
     """
     if host is Host.Darwin:
         return f"{lib}.{version}.dylib"
-    if host is Host.Linux:
+    if host in (Host.Linux, Host.LinuxArm64):
         return f"{lib}.so.{version}"
     raise ValueError(f"Unsupported host: {host}")
 

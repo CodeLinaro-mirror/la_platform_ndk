@@ -208,6 +208,7 @@ class App:
         target = {
             Host.Darwin: "darwin_mac",
             Host.Linux: "linux",
+            Host.LinuxArm64: "linux_arm64",
             Host.Windows64: "win64_tests",
         }[host]
 
