@@ -105,12 +105,12 @@ class ReleasedNdk(NdkSource):
     def __init__(self, version: str, platform: Host) -> None:
         super().__init__()
         self.version = version
-        self.platform = platform.value
+        self.platform = platform
 
     def commit_summary(self) -> str:
         return f"Update to NDK {self.version}."
 
-    def infer_major_version(self) -> int | None:
+    def infer_major_version(self) -> int:
         pattern = r"r(\d+).*"
         if (match := re.search(pattern, self.version)) is not None:
             return int(match.group(1))
@@ -119,8 +119,20 @@ class ReleasedNdk(NdkSource):
         )
 
     @property
+    def host_archive_name(self) -> str:
+        return {
+            Host.Darwin: "darwin",
+            Host.Linux: "linux-x86_64" if self.infer_major_version() >= 31 else "linux",
+            Host.LinuxArm64: "linux-arm64",
+            Host.Windows64: "windows",
+        }[self.platform]
+
+    @property
     def url(self) -> str:
-        return f"https://dl.google.com/android/repository/android-ndk-{self.version}-{self.platform}.zip"
+        return (
+            "https://dl.google.com/android/repository/"
+            f"android-ndk-{self.version}-{self.host_archive_name}.zip"
+        )
 
     async def download_zip(self, destination: Path) -> None:
         logging.info("Downloading NDK from %s", self.url)
@@ -135,7 +147,7 @@ class CanaryNdk(NdkSource):
     def __init__(self, build_id: str, platform: Host) -> None:
         super().__init__()
         self.build_id = build_id
-        self.platform = platform.value
+        self.platform = platform
 
     def commit_summary(self) -> str:
         return f"Update to canary build {self.build_id}."
@@ -144,12 +156,18 @@ class CanaryNdk(NdkSource):
         return None
 
     async def download_zip(self, destination: Path) -> None:
+        target = {
+            Host.Darwin: "darwin_mac",
+            Host.Linux: "linux",
+            Host.LinuxArm64: "linux_arm64",
+            Host.Windows64: "win64",
+        }[self.platform]
         async with ClientSession() as session:
             with destination.open("wb") as output:
                 async for chunk in fetch_artifact_chunked(
-                    "linux",
+                    target,
                     self.build_id,
-                    f"android-ndk-{self.build_id}-{self.platform}-x86_64.zip",
+                    f"android-ndk-{self.build_id}-{self.platform.tag}.zip",
                     session,
                 ):
                     output.write(chunk)
@@ -226,6 +244,8 @@ class PrebuiltsRepo:
         repo_base = "https://android.googlesource.com/toolchain/prebuilts/ndk"
         if self.platform == Host.Darwin:
             repo_base += "-darwin"
+        elif self.platform == Host.LinuxArm64:
+            repo_base += "-linux-arm64"
         await async_run(
             [
                 "git",

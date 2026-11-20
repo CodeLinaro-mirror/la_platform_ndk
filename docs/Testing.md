@@ -306,10 +306,10 @@ there. If you need to re-run those tests (say, to debug a failing test), you
 will want to omit `--clean-device` for each subsequent run of the same test
 package or each test run will take a very long time.
 
-The ndk-tests.tar.bz2 artifact will exist for each of the "linux", "darwin_mac",
-and "win64_tests" targets. All of them must be downloaded and run. Running only
-the tests from the linux build will not verify that the windows or darwin NDKs
-produces usable binaries.
+The ndk-tests.tar.bz2 artifact will exist for each of the "linux",
+"linux_arm64", "darwin_mac", and "win64_tests" targets. All of them must be
+downloaded and run. Running only the tests from the linux build will not verify
+that the linux-arm64, windows, or darwin NDKs produce usable binaries.
 
 ## Broken and Unsupported Tests
 
